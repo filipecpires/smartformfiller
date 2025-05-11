@@ -22,4 +22,3 @@ export interface GoogleDriveSaveConfig {
   fileNameFieldId?: string; // ID of the form field to use for filename prefix
 }
 
-```
