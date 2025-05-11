@@ -6,6 +6,7 @@ import { TemplateCreator } from '@/components/smart-form-filler/template-creator
 import { DocumentUploader } from '@/components/smart-form-filler/document-uploader';
 import { FilledFormDisplay } from '@/components/smart-form-filler/filled-form-display';
 import { PWAInstallButton } from '@/components/smart-form-filler/pwa-install-button';
+import { GoogleDriveSaveOptions } from '@/components/smart-form-filler/google-drive-save-options';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -95,6 +96,8 @@ export default function SmartFormFillerPage() {
       if (error instanceof Error) {
         errorMessage = error.message.includes("GEMINI_API_KEY") || error.message.includes("GOOGLE_API_KEY")
           ? "Chave de API não configurada. Verifique as variáveis de ambiente."
+          : error.message.includes("Quota exceeded") 
+          ? "Cota da API excedida. Por favor, tente novamente mais tarde ou verifique sua cota."
           : error.message;
       }
       toast({
@@ -112,6 +115,7 @@ export default function SmartFormFillerPage() {
     setFinalFormData(data);
     setCurrentStep('finalReview');
     console.log("Formulário final submetido:", data);
+    toast({ title: "Revisão Final", description: "Confira os dados e salve no Google Drive, se desejar."})
   };
   
   const resetApp = () => {
@@ -182,29 +186,37 @@ export default function SmartFormFillerPage() {
             onStartOver={resetApp}
           />
         )}
-        {currentStep === 'finalReview' && finalFormData && (
-          <Card className="w-full shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-2xl font-semibold flex items-center">
-                <CheckCircle2 className="mr-2 h-7 w-7 text-green-500" />
-                Formulário Concluído!
-              </CardTitle>
-              <CardDescription>Aqui está o resumo do seu formulário preenchido e revisado.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {templateFields.map(field => (
-                <div key={field.id} className="p-3 border rounded-md bg-card/50">
-                  <p className="text-sm font-medium text-muted-foreground">{field.label}:</p>
-                  <p className="text-md font-semibold">{finalFormData[field.id] || "Não preenchido"}</p>
-                </div>
-              ))}
-            </CardContent>
-            <CardFooter className="flex justify-end">
-              <Button onClick={resetApp} className="min-w-[180px]">
-                <ListChecks className="mr-2 h-4 w-4" /> Começar Novo Formulário
-              </Button>
-            </CardFooter>
-          </Card>
+        {currentStep === 'finalReview' && finalFormData && templateFields.length > 0 && (
+          <div className="space-y-6">
+            <Card className="w-full shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-2xl font-semibold flex items-center">
+                  <CheckCircle2 className="mr-2 h-7 w-7 text-green-500" />
+                  Revisão Final do Formulário
+                </CardTitle>
+                <CardDescription>Confira os dados preenchidos. Você pode voltar para editar ou salvar no Google Drive.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {templateFields.map(field => (
+                  <div key={field.id} className="p-3 border rounded-md bg-card/50">
+                    <p className="text-sm font-medium text-muted-foreground">{field.label}:</p>
+                    <p className="text-md font-semibold">{finalFormData[field.id] || "Não preenchido"}</p>
+                  </div>
+                ))}
+              </CardContent>
+              <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-3">
+                <Button variant="outline" onClick={goBack}>Voltar para Editar</Button>
+                <Button onClick={resetApp} className="min-w-[180px]">
+                  <ListChecks className="mr-2 h-4 w-4" /> Começar Novo Formulário
+                </Button>
+              </CardFooter>
+            </Card>
+            
+            <GoogleDriveSaveOptions 
+              templateFields={templateFields}
+              finalFormData={finalFormData}
+            />
+          </div>
         )}
       </main>
       <PWAInstallButton />

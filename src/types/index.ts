@@ -12,3 +12,9 @@ export const fieldTypeLabels: Record<FieldType, string> = {
   date: "Data",
   dropdown: "Seleção",
 };
+
+export interface GoogleDriveSaveConfig {
+  accessToken: string;
+  baseFolderName: string;
+  subfolderFieldId?: string; // ID of the form field to use for subfolder name
+}
