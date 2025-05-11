@@ -7,17 +7,23 @@ import { DocumentUploader } from '@/components/smart-form-filler/document-upload
 import { FilledFormDisplay } from '@/components/smart-form-filler/filled-form-display';
 import { PWAInstallButton } from '@/components/smart-form-filler/pwa-install-button';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { AlertCircle, CheckCircle2, FileText, ListChecks, UploadCloud } from 'lucide-react';
 import { fillFormFields } from '@/ai/flows/fill-form-fields';
-import type { FillFormFieldsInput, FillFormFieldsOutput } from '@/ai/flows/fill-form-fields';
+import type { FillFormFieldsInput, FillFormFieldsOutput as AIResponseType } from '@/ai/flows/fill-form-fields'; // Renamed to avoid conflict
 import type { FormFieldSchema as AIFormFieldSchema } from '@/ai/flows/fill-form-fields';
 import type { CustomFormFieldSchema } from '@/types';
 import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
 
 type AppStep = 'templateCreation' | 'documentUpload' | 'formDisplay' | 'finalReview';
+
+// Frontend expects Record<string, string> for filledFields
+interface FillFormFieldsOutput {
+  filledFields: Record<string, string>;
+}
+
 
 const fileToDataUri = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -60,24 +66,32 @@ export default function SmartFormFillerPage() {
     try {
       const documentDataUri = await fileToDataUri(file);
       
-      // Map CustomFormFieldSchema to AIFormFieldSchema
       const aiTemplate: AIFormFieldSchema[] = templateFields.map(({ options, ...rest }) => rest);
 
       const input: FillFormFieldsInput = {
         documentDataUri,
         formTemplate: aiTemplate,
       };
-      const output: FillFormFieldsOutput = await fillFormFields(input);
+      // The fillFormFields flow now directly returns the Record<string, string> structure due to the adapter in the flow itself.
+      const output: FillFormFieldsOutput = await fillFormFields(input); 
+      
       setFilledData(output.filledFields);
       setCurrentStep('formDisplay');
       toast({ title: "Documento Processado!", description: "Revise e edite os campos preenchidos.", variant: "default" });
     } catch (error) {
       console.error("Erro ao processar documento:", error);
+      let errorMessage = "Houve um problema ao analisar o documento. Tente novamente.";
+      if (error instanceof Error) {
+        errorMessage = error.message.includes("GEMINI_API_KEY") 
+          ? "Chave de API não configurada. Verifique as variáveis de ambiente."
+          : error.message;
+      }
       toast({
         title: "Erro no Processamento",
-        description: "Houve um problema ao analisar o documento. Tente novamente.",
+        description: errorMessage,
         variant: "destructive",
       });
+      setCurrentStep('documentUpload'); // Stay on upload step or go back
     } finally {
       setIsLoading(false);
     }
@@ -86,7 +100,6 @@ export default function SmartFormFillerPage() {
   const handleFormSubmit = (data: Record<string, string>) => {
     setFinalFormData(data);
     setCurrentStep('finalReview');
-    // In a real app, this data would be sent to a server or stored.
     console.log("Formulário final submetido:", data);
   };
   
@@ -190,4 +203,3 @@ export default function SmartFormFillerPage() {
     </div>
   );
 }
-
