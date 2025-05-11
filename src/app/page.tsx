@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Progress } from "@/components/ui/progress";
 import { AlertCircle, CheckCircle2, FileText, ListChecks, UploadCloud } from 'lucide-react';
 import { fillFormFields } from '@/ai/flows/fill-form-fields';
-import type { FillFormFieldsInput, FillFormFieldsOutput as AIResponseType } from '@/ai/flows/fill-form-fields'; // Renamed to avoid conflict
+import type { FillFormFieldsInput, FillFormFieldsOutput as AIResponseType } from '@/ai/flows/fill-form-fields'; 
 import type { FormFieldSchema as AIFormFieldSchema } from '@/ai/flows/fill-form-fields';
 import type { CustomFormFieldSchema } from '@/types';
 import { useToast } from "@/hooks/use-toast";
@@ -19,10 +19,8 @@ import Image from 'next/image';
 
 type AppStep = 'templateCreation' | 'documentUpload' | 'formDisplay' | 'finalReview';
 
-// Frontend expects Record<string, string> for filledFields
-interface FillFormFieldsOutput {
-  filledFields: Record<string, string>;
-}
+// The AI flow now returns AIResponseType: { filledFields: { fieldId: string, value: string }[] }
+// The frontend state `filledData` and `finalFormData` will remain Record<string, string>
 
 
 const fileToDataUri = (file: File): Promise<string> => {
@@ -72,17 +70,30 @@ export default function SmartFormFillerPage() {
         documentDataUri,
         formTemplate: aiTemplate,
       };
-      // The fillFormFields flow now directly returns the Record<string, string> structure due to the adapter in the flow itself.
-      const output: FillFormFieldsOutput = await fillFormFields(input); 
       
-      setFilledData(output.filledFields);
+      const aiOutput: AIResponseType = await fillFormFields(input); 
+      
+      const filledFieldsRecord: Record<string, string> = {};
+      if (aiOutput && aiOutput.filledFields && Array.isArray(aiOutput.filledFields)) {
+        aiOutput.filledFields.forEach(field => {
+          filledFieldsRecord[field.fieldId] = field.value;
+        });
+      } else {
+        // Handle cases where aiOutput.filledFields is not as expected, though the flow aims to prevent this.
+        console.error("AI output.filledFields is not an array or is missing:", aiOutput);
+        templateFields.forEach(tf => {
+          filledFieldsRecord[tf.id] = "Erro ao processar campo";
+        });
+      }
+      
+      setFilledData(filledFieldsRecord);
       setCurrentStep('formDisplay');
       toast({ title: "Documento Processado!", description: "Revise e edite os campos preenchidos.", variant: "default" });
     } catch (error) {
       console.error("Erro ao processar documento:", error);
       let errorMessage = "Houve um problema ao analisar o documento. Tente novamente.";
       if (error instanceof Error) {
-        errorMessage = error.message.includes("GEMINI_API_KEY") 
+        errorMessage = error.message.includes("GEMINI_API_KEY") || error.message.includes("GOOGLE_API_KEY")
           ? "Chave de API não configurada. Verifique as variáveis de ambiente."
           : error.message;
       }
@@ -91,7 +102,7 @@ export default function SmartFormFillerPage() {
         description: errorMessage,
         variant: "destructive",
       });
-      setCurrentStep('documentUpload'); // Stay on upload step or go back
+      setCurrentStep('documentUpload'); 
     } finally {
       setIsLoading(false);
     }
@@ -203,3 +214,4 @@ export default function SmartFormFillerPage() {
     </div>
   );
 }
+

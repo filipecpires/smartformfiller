@@ -100,33 +100,17 @@ const fillFormFieldsFlow = ai.defineFlow(
     tools: [extractFieldValueTool],
   },
   async (input) => {
-    const { documentDataUri, formTemplate } = input;
-    const filledFields: { fieldId: string; value: string }[] = [];
-
-    for (const field of formTemplate) {
-      console.log(`Processing field: ${field.label} (ID: ${field.id})`);
-      const toolInput = {
-        documentDataUri,
-        fieldLabel: field.label,
-      };
-
-      // Call the tool to extract value for the current field
-      // The flow itself doesn't directly call the tool; the model decides.
-      // We need a prompt that utilizes the tool.
-      // Let's adjust the strategy: the main prompt will instruct the LLM to use the tool for each field.
-    }
-
-    // This flow will now use a main prompt that orchestrates the tool calls.
-    // The previous approach of calling the tool in a loop here is not how Genkit tools are typically used within a single flow execution.
-    // Instead, a single, more complex prompt tells the LLM to use the tool for each item.
-
+    // This flow will use a main prompt that orchestrates the tool calls.
     const systemPrompt = `You are an AI assistant designed to fill out form fields by extracting information from a provided document.
 For each field in the 'formTemplate', you MUST use the 'extractFieldValue' tool to get the value from the 'documentDataUri'.
 The 'fieldLabel' for the tool should be the 'label' of the current form field.
-Collect all results and return them in the specified output format.
+Collect all results and return them in the specified output format (an array of objects, where each object has 'fieldId' and 'value').
 Ensure that for every field in the input 'formTemplate', there is a corresponding entry in the 'filledFields' output array.
-If the tool returns "Não encontrado" or similar for a field, use that value.
+If the tool returns "Não encontrado" or similar for a field, use that value for the 'value' property.
+The 'fieldId' in the output must match the 'id' from the input 'formTemplate'.
+
 Document: {{media url=documentDataUri}}
+
 Form Template:
 {{#each formTemplate}}
 - Field ID: {{this.id}}, Label: {{this.label}}, Type: {{this.type}}
@@ -139,19 +123,16 @@ Form Template:
         output: { schema: FillFormFieldsOutputSchema },
         tools: [extractFieldValueTool],
         prompt: systemPrompt,
-        model: ai.getModel('googleai/gemini-2.0-flash'), // Ensure a capable model is used
+        model: ai.getModel('googleai/gemini-2.0-flash'), 
         config: {
-            // Higher temperature might be needed for complex instructions and tool use.
-            // Adjust as necessary.
-            // temperature: 0.7 
+            // temperature: 0.3 // Lower temperature for more deterministic tool usage
         }
     });
 
     const { output } = await fillAllFieldsPrompt(input);
 
-    if (!output || !output.filledFields) {
-      console.error("Flow Error: Main prompt did not return the expected filledFields structure.");
-      // Construct a default error response if output is malformed
+    if (!output || !output.filledFields || !Array.isArray(output.filledFields)) {
+      console.error("Flow Error: Main prompt did not return the expected filledFields array structure.", output);
       return { 
         filledFields: input.formTemplate.map(field => ({
           fieldId: field.id,
@@ -163,9 +144,11 @@ Form Template:
     // Ensure all fields have an entry, even if the LLM missed some
     const finalFilledFields = input.formTemplate.map(templateField => {
         const foundField = output.filledFields.find(f => f.fieldId === templateField.id);
-        if (foundField) {
+        if (foundField && typeof foundField.value === 'string') { // ensure value is a string
             return foundField;
         }
+        // If LLM missed a field or value is not a string, provide a default
+        console.warn(`Field ${templateField.id} was not processed correctly by LLM or value was not a string. Found:`, foundField)
         return { fieldId: templateField.id, value: "Não processado" };
     });
 
@@ -174,17 +157,9 @@ Form Template:
 );
 
 export async function fillFormFields(input: FillFormFieldsInput): Promise<FillFormFieldsOutput> {
-  // Map the filledFields array to the record format expected by the frontend
-  const flowOutput = await fillFormFieldsFlow(input);
-  const filledFieldsRecord: Record<string, string> = {};
-  flowOutput.filledFields.forEach(field => {
-    filledFieldsRecord[field.fieldId] = field.value;
-  });
-  // This function's return type in the frontend (page.tsx) is FillFormFieldsOutput, which expects `filledFields` as a Record.
-  // However, the Zod schema FillFormFieldsOutputSchema defines filledFields as an array.
-  // For consistency and to match the original intent of the calling code, we adapt here.
-  // This is a temporary workaround. Ideally, the Zod schema or the frontend expectation should be aligned.
-  return { filledFields: filledFieldsRecord as any }; // Cast to 'any' to bypass strict type check for this mismatch.
+  // The flow now directly returns the FillFormFieldsOutput type (array of {fieldId, value})
+  // The conversion to Record<string, string> will be handled by the client (page.tsx)
+  return fillFormFieldsFlow(input);
 }
 
 export type {FormFieldSchema};
