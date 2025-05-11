@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { ChangeEvent, FormEvent } from 'react';
@@ -15,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
-import { PlusCircle, Trash2, ArrowRight, Save, UploadCloud, FolderOpen, FilePlus2 } from "lucide-react";
+import { PlusCircle, Trash2, ArrowRight, Save, UploadCloud, FolderOpen, FilePlus2, ArrowLeft, Wand2 } from "lucide-react";
 import type { CustomFormFieldSchema, FieldType } from '@/types';
 import { fieldTypeLabels } from '@/types';
 import { useToast } from "@/hooks/use-toast";
@@ -35,8 +34,9 @@ import { Separator } from '@/components/ui/separator';
 const LOCAL_STORAGE_KEY = 'smartFormFillerTemplates';
 
 interface TemplateCreatorProps {
-  onTemplateCreated: (template: CustomFormFieldSchema[]) => void;
-  initialFields?: CustomFormFieldSchema[];
+  onTemplateCreated: (template: CustomFormFieldSchema[]) => void; // Renamed from onTemplateFinalized for consistency
+  currentFields: CustomFormFieldSchema[]; // AI suggestions or current working template
+  onBack: () => void; // To go back to document upload
 }
 
 interface SavedTemplate {
@@ -44,8 +44,8 @@ interface SavedTemplate {
   fields: CustomFormFieldSchema[];
 }
 
-export function TemplateCreator({ onTemplateCreated, initialFields = [] }: TemplateCreatorProps) {
-  const [fields, setFields] = useState<CustomFormFieldSchema[]>(initialFields);
+export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: TemplateCreatorProps) {
+  const [fields, setFields] = useState<CustomFormFieldSchema[]>(currentFields);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<FieldType>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
@@ -57,8 +57,23 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
   const [overwriteConfirmAction, setOverwriteConfirmAction] = useState<(() => void) | null>(null);
 
-
   const { toast } = useToast();
+
+  useEffect(() => {
+    // Sync internal fields state when currentFields prop changes (e.g., new AI suggestions)
+    setFields(currentFields);
+    // If currentFields are from AI (and not a loaded template), clear template name.
+    // This logic might need refinement based on how `templateNameToSave` should behave with AI suggestions.
+    // For now, if currentFields changes and it doesn't match any saved template name, clear the name.
+    const isCurrentFieldsASavedTemplate = savedTemplates.find(st => st.name === templateNameToSave && JSON.stringify(st.fields) === JSON.stringify(currentFields));
+    if (!isCurrentFieldsASavedTemplate && templateNameToSave && JSON.stringify(fields) !== JSON.stringify(currentFields)) {
+        // This heuristic is imperfect. If AI suggests fields, templateNameToSave should ideally be cleared
+        // unless the user explicitly loaded a template that happens to match AI suggestions.
+        // A simpler approach: if currentFields is not empty and templateNameToSave is empty, it might be AI suggestions.
+    }
+
+  }, [currentFields, savedTemplates, templateNameToSave, fields ]);
+
 
   useEffect(() => {
     const storedTemplates = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -79,7 +94,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
   };
 
   const generateFieldId = (label: string) => {
-    return label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '_' + Date.now().toString(36);
+    return label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '_' + Date.now().toString(36) + Math.random().toString(36).substring(2,5);
   };
 
   const handleAddField = () => {
@@ -94,7 +109,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
       type: newFieldType,
       options: newFieldType === 'dropdown' ? newFieldOptions.split(',').map(opt => opt.trim()).filter(opt => opt) : undefined,
     };
-    setFields([...fields, fieldToAdd]);
+    setFields(prevFields => [...prevFields, fieldToAdd]);
     setNewFieldLabel('');
     setNewFieldType('text');
     setNewFieldOptions('');
@@ -103,7 +118,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
 
   const handleRemoveField = (id: string) => {
     const fieldToRemove = fields.find(f => f.id === id);
-    setFields(fields.filter(field => field.id !== id));
+    setFields(prevFields => prevFields.filter(field => field.id !== id));
     if (fieldToRemove) {
         toast({ title: "Campo Removido", description: `"${fieldToRemove.label}" foi removido do modelo atual.`, variant: "default" });
     }
@@ -121,8 +136,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
       toast({ title: "Modelo Salvo", description: `Modelo "${templateNameToSave}" salvo com sucesso.` });
     }
     persistTemplates(newSavedTemplatesList);
-    setSelectedTemplateName(templateNameToSave); // Keep current saved/updated template selected
-    // setTemplateNameToSave(templateNameToSave); // Keep name in input for further edits or re-save
+    setSelectedTemplateName(templateNameToSave);
   };
 
   const handleSaveTemplate = () => {
@@ -170,22 +184,17 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
     persistTemplates(newSavedTemplates);
     toast({ title: "Modelo Excluído", description: `Modelo "${selectedTemplateName}" excluído com sucesso.` });
     
-    const currentFieldsBelongToDeleted = fields.length > 0 && templateNameToSave === selectedTemplateName;
-
-    setSelectedTemplateName(newSavedTemplates.length > 0 ? newSavedTemplates[0].name : undefined);
-    if (newSavedTemplates.length === 0 || currentFieldsBelongToDeleted) {
-        setFields(initialFields); 
+    const isCurrentTemplateTheDeletedOne = templateNameToSave === selectedTemplateName;
+    
+    setSelectedTemplateName(undefined); // Clear selection
+    if (isCurrentTemplateTheDeletedOne) {
+        setFields([]); // Clear fields if the deleted template was active
         setTemplateNameToSave('');
-    } else if (newSavedTemplates.length > 0) {
-        // If current fields are not from the deleted one, keep them, but clear save name if it matched deleted.
-        if (templateNameToSave === selectedTemplateName) {
-            setTemplateNameToSave(newSavedTemplates[0].name); // Or clear it: setTemplateNameToSave('');
-        }
     }
   };
 
   const handleNewTemplate = () => {
-    setFields(initialFields); // Reset to initial (usually empty)
+    setFields([]); 
     setTemplateNameToSave('');
     setSelectedTemplateName(undefined);
     toast({ title: "Novo Modelo", description: "Campos limpos. Comece a criar seu novo modelo." });
@@ -203,8 +212,10 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
   return (
     <Card className="w-full shadow-lg">
       <CardHeader>
-        <CardTitle className="text-2xl font-semibold">Criador de Modelos</CardTitle>
-        <CardDescription>Defina os campos para o seu formulário. Você também pode salvar e carregar modelos.</CardDescription>
+        <CardTitle className="text-2xl font-semibold">2. Criar/Revisar Modelo de Formulário</CardTitle>
+        <CardDescription>
+            Ajuste os campos sugeridos pela IA ou crie seu modelo do zero. Você também pode salvar e carregar modelos.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Add New Field Section */}
@@ -284,7 +295,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
                         <AlertDialogHeader>
                             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                             <AlertDialogDescription>
-                            Tem certeza que deseja excluir o modelo "{selectedTemplateName}"? Esta ação não pode ser desfeita.
+                            Tem certeza que deseja excluir o modelo "{selectedTemplateName}"? Esta ação não pode ser desfeita. Se este modelo estiver em uso, os campos serão limpos.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -327,13 +338,13 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
         {/* Current Fields Section */}
         {fields.length > 0 && (
           <div className="space-y-3">
-            <h3 className="text-lg font-medium">Campos do Modelo Atual {templateNameToSave ? `(${templateNameToSave})` : ''}</h3>
+            <h3 className="text-lg font-medium">Campos do Modelo Atual {templateNameToSave ? `(${templateNameToSave})` : '(Modelo não salvo)'}</h3>
             <ul className="space-y-2">
               {fields.map(field => (
                 <li key={field.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:shadow-md transition-shadow">
                   <div>
                     <span className="font-medium">{field.label}</span>
-                    <span className="text-sm text-muted-foreground ml-2">({fieldTypeLabels[field.type as FieldType]})</span>
+                    <span className="text-sm text-muted-foreground ml-2">({fieldTypeLabels[field.type as FieldType] || field.type})</span>
                     {field.type === 'dropdown' && field.options && (
                        <p className="text-xs text-muted-foreground mt-1">Opções: {field.options.join(', ')}</p>
                     )}
@@ -347,12 +358,18 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
           </div>
         )}
          {fields.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">Nenhum campo adicionado ao modelo atual.</p>
+            <p className="text-sm text-muted-foreground text-center py-4">
+                Nenhum campo adicionado ao modelo atual. Adicione campos acima ou carregue um modelo salvo.
+                {currentFields.length > 0 && " (As sugestões da IA foram limpas ou não foram aplicadas.)"}
+            </p>
         )}
       </CardContent>
-      <CardFooter>
-        <Button onClick={handleSubmit} disabled={fields.length === 0} className="w-full sm:w-auto ml-auto">
-          Próximo Passo <ArrowRight className="ml-2" />
+      <CardFooter className="flex justify-between">
+        <Button variant="outline" onClick={onBack}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Voltar (Novo Documento)
+        </Button>
+        <Button onClick={handleSubmit} disabled={fields.length === 0} className="min-w-[220px]">
+          Finalizar Modelo e Preencher <Wand2 className="ml-2" />
         </Button>
       </CardFooter>
 
@@ -368,7 +385,6 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => {
               setOverwriteConfirmAction(null);
-              // setIsOverwriteDialogVisible(false); // onOpenChange handles this
             }}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
@@ -376,7 +392,6 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
                   overwriteConfirmAction();
                 }
                 setOverwriteConfirmAction(null);
-                // setIsOverwriteDialogVisible(false); // onOpenChange handles this
               }}
             >
               Sobrescrever
@@ -384,8 +399,6 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </Card>
   );
 }
-

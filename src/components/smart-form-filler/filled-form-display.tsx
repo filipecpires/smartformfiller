@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect } from 'react';
@@ -13,10 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea"; // Assuming you might want textarea for some text fields
+import { Textarea } from "@/components/ui/textarea"; 
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Save, RotateCcw, ArrowLeft } from "lucide-react";
+import { Save, RotateCcw, ArrowLeft, Loader2 } from "lucide-react";
 import type { CustomFormFieldSchema, FieldType } from '@/types';
 import { fieldTypeLabels } from '@/types';
 import { useToast } from "@/hooks/use-toast";
@@ -27,16 +26,16 @@ interface FilledFormDisplayProps {
   onFormSubmit: (data: Record<string, string>) => void;
   onBack: () => void;
   onStartOver: () => void;
+  isLoading?: boolean; // Added isLoading prop
 }
 
-export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, onStartOver }: FilledFormDisplayProps) {
+export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, onStartOver, isLoading = false }: FilledFormDisplayProps) {
   const form = useForm<Record<string, string>>({
     defaultValues: filledData,
   });
   const { toast } = useToast();
 
   useEffect(() => {
-    // Reset form with new filledData when it changes
     form.reset(filledData);
   }, [filledData, form]);
 
@@ -52,6 +51,7 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
     const commonProps = {
       control: form.control,
       name: field.id,
+      disabled: isLoading, // Disable fields while loading
     };
 
     return (
@@ -64,13 +64,13 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
             <FormControl>
               <>
                 {field.type === 'text' && (
-                  <Input {...formField} placeholder={`Digite ${field.label.toLowerCase()}`} className="mt-1" />
+                  <Input {...formField} placeholder={`Digite ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
                 )}
                 {field.type === 'date' && (
-                  <Input type="date" {...formField} className="mt-1" />
+                  <Input type="date" {...formField} className="mt-1" disabled={isLoading} />
                 )}
                 {field.type === 'dropdown' && field.options && (
-                  <Select onValueChange={formField.onChange} defaultValue={formField.value}>
+                  <Select onValueChange={formField.onChange} defaultValue={formField.value} disabled={isLoading}>
                     <SelectTrigger className="w-full mt-1">
                       <SelectValue placeholder={`Selecione ${field.label.toLowerCase()}`} />
                     </SelectTrigger>
@@ -81,9 +81,8 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
                     </SelectContent>
                   </Select>
                 )}
-                {/* Fallback for unknown types or simple text display */}
                 {!(field.type === 'text' || field.type === 'date' || field.type === 'dropdown') && (
-                     <Input {...formField} placeholder={`Valor para ${field.label.toLowerCase()}`} className="mt-1" />
+                     <Input {...formField} placeholder={`Valor para ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
                 )}
               </>
             </FormControl>
@@ -97,28 +96,38 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
   return (
     <Card className="w-full shadow-lg">
       <CardHeader>
-        <CardTitle className="text-2xl font-semibold">Formulário Preenchido</CardTitle>
-        <CardDescription>Revise e edite os campos preenchidos pela IA.</CardDescription>
+        <CardTitle className="text-2xl font-semibold">3. Formulário Preenchido</CardTitle>
+        <CardDescription>
+            {isLoading ? "Aguarde, a IA está preenchendo..." : "Revise e edite os campos preenchidos pela IA."}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            {template.map(renderField)}
-            <CardFooter className="flex flex-col sm:flex-row justify-between gap-2 p-0 pt-6">
-              <Button type="button" variant="outline" onClick={onBack}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
-              </Button>
-              <div className="flex flex-col sm:flex-row gap-2">
-                 <Button type="button" variant="secondary" onClick={onStartOver}>
-                    <RotateCcw className="mr-2 h-4 w-4" /> Novo Documento
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="ml-4 text-lg text-muted-foreground">Preenchendo formulário...</p>
+          </div>
+        )}
+        {!isLoading && (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              {template.map(renderField)}
+              <CardFooter className="flex flex-col sm:flex-row justify-between gap-2 p-0 pt-6">
+                <Button type="button" variant="outline" onClick={onBack} disabled={isLoading}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Voltar (Editar Modelo)
                 </Button>
-                <Button type="submit" className="min-w-[120px]">
-                    <Save className="mr-2 h-4 w-4" /> Salvar
-                </Button>
-              </div>
-            </CardFooter>
-          </form>
-        </Form>
+                <div className="flex flex-col sm:flex-row gap-2">
+                   <Button type="button" variant="secondary" onClick={onStartOver} disabled={isLoading}>
+                      <RotateCcw className="mr-2 h-4 w-4" /> Novo Documento
+                  </Button>
+                  <Button type="submit" className="min-w-[120px]" disabled={isLoading}>
+                      <Save className="mr-2 h-4 w-4" /> Salvar e Revisar
+                  </Button>
+                </div>
+              </CardFooter>
+            </form>
+          </Form>
+        )}
       </CardContent>
     </Card>
   );

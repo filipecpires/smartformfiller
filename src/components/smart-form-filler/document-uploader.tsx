@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { ChangeEvent } from 'react';
@@ -7,16 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
-import { UploadCloud, FileText, Loader2, ArrowLeft } from "lucide-react";
+import { UploadCloud, FileText, Loader2, Wand2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface DocumentUploaderProps {
   onDocumentUploaded: (file: File) => void;
   isLoading: boolean;
-  onBack: () => void;
+  // onBack?: () => void; // Removed as this is the first step
 }
 
-export function DocumentUploader({ onDocumentUploaded, isLoading, onBack }: DocumentUploaderProps) {
+export function DocumentUploader({ onDocumentUploaded, isLoading }: DocumentUploaderProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -24,7 +23,6 @@ export function DocumentUploader({ onDocumentUploaded, isLoading, onBack }: Docu
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-      // Basic validation (example: check file type or size)
       if (file.size > 10 * 1024 * 1024) { // Max 10MB
         toast({
           title: "Erro",
@@ -32,10 +30,9 @@ export function DocumentUploader({ onDocumentUploaded, isLoading, onBack }: Docu
           variant: "destructive",
         });
         setSelectedFile(null);
-        if(fileInputRef.current) fileInputRef.current.value = ""; // Reset file input
+        if(fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
-      // Could add MIME type check here, e.g. application/pdf, image/*
       setSelectedFile(file);
     } else {
       setSelectedFile(null);
@@ -57,8 +54,8 @@ export function DocumentUploader({ onDocumentUploaded, isLoading, onBack }: Docu
   return (
     <Card className="w-full shadow-lg">
       <CardHeader>
-        <CardTitle className="text-2xl font-semibold">Carregar Documento</CardTitle>
-        <CardDescription>Envie o documento que deseja preencher.</CardDescription>
+        <CardTitle className="text-2xl font-semibold">1. Carregar Documento</CardTitle>
+        <CardDescription>Envie o documento base. A IA irá analisá-lo e sugerir campos para o seu modelo.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
@@ -95,17 +92,19 @@ export function DocumentUploader({ onDocumentUploaded, isLoading, onBack }: Docu
           </div>
         )}
       </CardContent>
-      <CardFooter className="flex justify-between">
-        <Button variant="outline" onClick={onBack} disabled={isLoading}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
-        </Button>
-        <Button onClick={handleSubmit} disabled={!selectedFile || isLoading} className="min-w-[180px]">
+      <CardFooter className="flex justify-end">
+        {/* {onBack && ( // Conditional rendering if onBack is ever re-introduced
+          <Button variant="outline" onClick={onBack} disabled={isLoading}>
+              <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+          </Button>
+        )} */}
+        <Button onClick={handleSubmit} disabled={!selectedFile || isLoading} className="min-w-[220px]">
           {isLoading ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
-            <UploadCloud className="mr-2 h-4 w-4" />
+            <Wand2 className="mr-2 h-4 w-4" />
           )}
-          {isLoading ? "Processando..." : "Analisar Documento"}
+          {isLoading ? "Analisando..." : "Analisar e Sugerir Campos"}
         </Button>
       </CardFooter>
     </Card>

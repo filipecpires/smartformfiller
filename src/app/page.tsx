@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -10,19 +9,19 @@ import { GoogleDriveSaveOptions } from '@/components/smart-form-filler/google-dr
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle, CheckCircle2, FileText, ListChecks, UploadCloud } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileText, ListChecks, UploadCloud, Wand2, Edit3 } from 'lucide-react';
 import { fillFormFields } from '@/ai/flows/fill-form-fields';
 import type { FillFormFieldsInput, FillFormFieldsOutput as AIResponseType } from '@/ai/flows/fill-form-fields'; 
 import type { FormFieldSchema as AIFormFieldSchema } from '@/ai/flows/fill-form-fields';
-import type { CustomFormFieldSchema } from '@/types';
+
+import { suggestFormFieldsFromDocument } from '@/ai/flows/suggest-form-fields-from-document';
+import type { SuggestFormFieldsInput, SuggestFormFieldsOutput, SuggestedField as AISuggestedField } from '@/ai/flows/suggest-form-fields-from-document';
+
+import type { CustomFormFieldSchema, FieldType } from '@/types';
 import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
 
-type AppStep = 'templateCreation' | 'documentUpload' | 'formDisplay' | 'finalReview';
-
-// The AI flow now returns AIResponseType: { filledFields: { fieldId: string, value: string }[] }
-// The frontend state `filledData` and `finalFormData` will remain Record<string, string>
-
+type AppStep = 'documentUpload' | 'templateCreation' | 'formDisplay' | 'finalReview';
 
 const fileToDataUri = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -33,66 +32,71 @@ const fileToDataUri = (file: File): Promise<string> => {
   });
 };
 
+const generateFieldId = (label: string): string => {
+  return label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
+};
+
+
 export default function SmartFormFillerPage() {
-  const [currentStep, setCurrentStep] = useState<AppStep>('templateCreation');
-  const [templateFields, setTemplateFields] = useState<CustomFormFieldSchema[]>([]);
+  const [currentStep, setCurrentStep] = useState<AppStep>('documentUpload');
+  
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [documentDataUriForAI, setDocumentDataUriForAI] = useState<string | null>(null);
+  
+  // templateFields will hold AI suggestions first, then user's final template.
+  const [templateFields, setTemplateFields] = useState<CustomFormFieldSchema[]>([]);
+  
   const [filledData, setFilledData] = useState<Record<string, string> | null>(null);
   const [finalFormData, setFinalFormData] = useState<Record<string, string> | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
   
+  const [isLoadingDocumentProcessing, setIsLoadingDocumentProcessing] = useState(false); // For upload + AI field suggestion
+  const [isLoadingFormFilling, setIsLoadingFormFilling] = useState(false); // For AI filling the form
+
+  const { toast } = useToast();
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    if (currentStep === 'templateCreation') setProgress(25);
-    else if (currentStep === 'documentUpload') setProgress(50);
-    else if (currentStep === 'formDisplay') setProgress(75);
+    if (currentStep === 'documentUpload') setProgress(0); // Start at 0, moves to 25 after upload
+    else if (currentStep === 'templateCreation') setProgress(40);
+    else if (currentStep === 'formDisplay') setProgress(70);
     else if (currentStep === 'finalReview') setProgress(100);
   }, [currentStep]);
 
 
-  const handleTemplateCreated = (template: CustomFormFieldSchema[]) => {
-    setTemplateFields(template);
-    setCurrentStep('documentUpload');
-    toast({ title: "Modelo Criado!", description: "Agora, carregue seu documento." });
-  };
-
   const handleDocumentUploaded = async (file: File) => {
-    setUploadedFile(file);
-    setIsLoading(true);
-    toast({ title: "Processando Documento...", description: "A IA está analisando seu arquivo. Isso pode levar alguns instantes." });
+    setIsLoadingDocumentProcessing(true);
+    setProgress(10); // Indicate upload started
+    toast({ title: "Processando Documento...", description: "Carregando arquivo e buscando sugestões de campos com IA. Aguarde." });
+    
     try {
-      const documentDataUri = await fileToDataUri(file);
-      
-      const aiTemplate: AIFormFieldSchema[] = templateFields.map(({ options, ...rest }) => rest);
+      const dataUri = await fileToDataUri(file);
+      setUploadedFile(file);
+      setDocumentDataUriForAI(dataUri);
+      setProgress(25); // File processed, AI suggestion starting
 
-      const input: FillFormFieldsInput = {
-        documentDataUri,
-        formTemplate: aiTemplate,
-      };
+      const suggestionInput: SuggestFormFieldsInput = { documentDataUri: dataUri };
+      const suggestionOutput: SuggestFormFieldsOutput = await suggestFormFieldsFromDocument(suggestionInput);
       
-      const aiOutput: AIResponseType = await fillFormFields(input); 
-      
-      const filledFieldsRecord: Record<string, string> = {};
-      if (aiOutput && aiOutput.filledFields && Array.isArray(aiOutput.filledFields)) {
-        aiOutput.filledFields.forEach(field => {
-          filledFieldsRecord[field.fieldId] = field.value;
-        });
+      let aiSuggestedFieldsMapped: CustomFormFieldSchema[] = [];
+      if (suggestionOutput.suggestedFields && suggestionOutput.suggestedFields.length > 0) {
+        aiSuggestedFieldsMapped = suggestionOutput.suggestedFields.map((sField: AISuggestedField) => ({
+          id: generateFieldId(sField.label),
+          label: sField.label,
+          type: ['text', 'date', 'dropdown'].includes(sField.type) ? sField.type as FieldType : (sField.type === 'dropdown_candidate' ? 'dropdown' : 'text'),
+          // options: sField.type === 'dropdown_candidate' && sField.exampleValue ? [sField.exampleValue] : undefined, // simple initial option
+          // exampleValue: sField.exampleValue // Can be added to CustomFormFieldSchema if needed for display
+        }));
+        toast({ title: "Sugestões Prontas!", description: `${aiSuggestedFieldsMapped.length} campos foram sugeridos pela IA. Revise ou crie seu modelo.`, duration: 6000 });
       } else {
-        // Handle cases where aiOutput.filledFields is not as expected, though the flow aims to prevent this.
-        console.error("AI output.filledFields is not an array or is missing:", aiOutput);
-        templateFields.forEach(tf => {
-          filledFieldsRecord[tf.id] = "Erro ao processar campo";
-        });
+        toast({ title: "Documento Carregado", description: "Não foram encontradas sugestões automáticas. Crie seu modelo manualmente.", variant: "default" });
       }
       
-      setFilledData(filledFieldsRecord);
-      setCurrentStep('formDisplay');
-      toast({ title: "Documento Processado!", description: "Revise e edite os campos preenchidos.", variant: "default" });
+      setTemplateFields(aiSuggestedFieldsMapped); // Pre-populates TemplateCreator
+      setCurrentStep('templateCreation');
+
     } catch (error) {
-      console.error("Erro ao processar documento:", error);
-      let errorMessage = "Houve um problema ao analisar o documento. Tente novamente.";
+      console.error("Erro ao processar documento e sugerir campos:", error);
+       let errorMessage = "Houve um problema ao analisar o documento. Tente novamente.";
       if (error instanceof Error) {
         errorMessage = error.message.includes("GEMINI_API_KEY") || error.message.includes("GOOGLE_API_KEY")
           ? "Chave de API não configurada. Verifique as variáveis de ambiente."
@@ -101,37 +105,100 @@ export default function SmartFormFillerPage() {
           : error.message;
       }
       toast({
-        title: "Erro no Processamento",
+        title: "Erro no Processamento Inicial",
         description: errorMessage,
         variant: "destructive",
       });
+      // Stay on documentUpload or reset, decided by UX. For now, stay.
+      setUploadedFile(null);
+      setDocumentDataUriForAI(null);
+      setTemplateFields([]);
       setCurrentStep('documentUpload'); 
     } finally {
-      setIsLoading(false);
+      setIsLoadingDocumentProcessing(false);
+      // Progress update handled by useEffect on currentStep change
+    }
+  };
+  
+  const handleTemplateFinalized = async (finalizedTemplate: CustomFormFieldSchema[]) => {
+    setTemplateFields(finalizedTemplate); // User has confirmed/created the template
+    
+    if (!documentDataUriForAI) {
+      toast({ title: "Erro", description: "Documento não encontrado para preenchimento.", variant: "destructive" });
+      setCurrentStep('documentUpload'); // Go back if doc is missing
+      return;
+    }
+
+    setIsLoadingFormFilling(true);
+    setProgress(60); // Indicate form filling started
+    toast({ title: "Preenchendo Formulário...", description: "A IA está preenchendo os campos. Isso pode levar alguns instantes." });
+
+    try {
+      const aiTemplateForFilling: AIFormFieldSchema[] = finalizedTemplate.map(({ options, ...rest }) => rest);
+      const fillInput: FillFormFieldsInput = {
+        documentDataUri: documentDataUriForAI,
+        formTemplate: aiTemplateForFilling,
+      };
+      
+      const aiOutput: AIResponseType = await fillFormFields(fillInput);
+      
+      const filledFieldsRecord: Record<string, string> = {};
+      if (aiOutput && aiOutput.filledFields && Array.isArray(aiOutput.filledFields)) {
+        aiOutput.filledFields.forEach(field => {
+          filledFieldsRecord[field.fieldId] = field.value;
+        });
+      } else {
+        console.error("AI output.filledFields is not an array or is missing:", aiOutput);
+        finalizedTemplate.forEach(tf => {
+          filledFieldsRecord[tf.id] = "Erro ao processar campo";
+        });
+      }
+      
+      setFilledData(filledFieldsRecord);
+      setCurrentStep('formDisplay');
+      toast({ title: "Formulário Preenchido!", description: "Revise e edite os campos.", variant: "default" });
+
+    } catch (error) {
+      console.error("Erro ao preencher formulário com IA:", error);
+      let errorMessage = "Falha ao preencher o formulário com IA.";
+       if (error instanceof Error) {
+        errorMessage = error.message.includes("Quota exceeded") 
+          ? "Cota da API excedida durante o preenchimento. Por favor, tente novamente mais tarde ou verifique sua cota."
+          : error.message;
+      }
+      toast({ title: "Erro no Preenchimento IA", description: errorMessage, variant: "destructive" });
+      setCurrentStep('templateCreation'); // Allow user to retry or adjust template
+    } finally {
+      setIsLoadingFormFilling(false);
     }
   };
 
-  const handleFormSubmit = (data: Record<string, string>) => {
+
+  const handleFormSubmitEdited = (data: Record<string, string>) => { // Renamed from handleFormSubmit
     setFinalFormData(data);
     setCurrentStep('finalReview');
-    console.log("Formulário final submetido:", data);
     toast({ title: "Revisão Final", description: "Confira os dados e salve no Google Drive, se desejar."})
   };
   
   const resetApp = () => {
-    setCurrentStep('templateCreation');
-    setTemplateFields([]);
+    setCurrentStep('documentUpload');
     setUploadedFile(null);
+    setDocumentDataUriForAI(null);
+    setTemplateFields([]);
     setFilledData(null);
     setFinalFormData(null);
-    setIsLoading(false);
+    setIsLoadingDocumentProcessing(false);
+    setIsLoadingFormFilling(false);
     setProgress(0);
-    toast({ title: "Pronto para um Novo Formulário!", description: "Crie um novo modelo para começar." });
+    toast({ title: "Pronto para um Novo Documento!", description: "Carregue um documento para começar." });
   };
 
   const goBack = () => {
-    if (currentStep === 'documentUpload') setCurrentStep('templateCreation');
-    else if (currentStep === 'formDisplay') setCurrentStep('documentUpload');
+    if (currentStep === 'templateCreation') {
+      // Reset to allow new document upload and field suggestion
+      resetApp(); // This sets currentStep to 'documentUpload'
+    }
+    else if (currentStep === 'formDisplay') setCurrentStep('templateCreation');
     else if (currentStep === 'finalReview') setCurrentStep('formDisplay');
   };
 
@@ -139,10 +206,18 @@ export default function SmartFormFillerPage() {
     <div className="w-full mb-8">
         <Progress value={progress} className="w-full h-3 rounded-full" />
         <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-center">
-            <div className={currentStep === 'templateCreation' || progress >=25 ? 'text-primary font-semibold' : 'text-muted-foreground'}>1. Criar Modelo</div>
-            <div className={currentStep === 'documentUpload' || progress >=50 ? 'text-primary font-semibold' : 'text-muted-foreground'}>2. Carregar Doc</div>
-            <div className={currentStep === 'formDisplay' || progress >=75 ? 'text-primary font-semibold' : 'text-muted-foreground'}>3. Preencher</div>
-            <div className={currentStep === 'finalReview' || progress >=100 ? 'text-primary font-semibold' : 'text-muted-foreground'}>4. Revisar</div>
+            <div className={currentStep === 'documentUpload' || progress >=0 ? 'text-primary font-semibold' : 'text-muted-foreground'}>
+                <UploadCloud className="inline-block mr-1 h-4 w-4" />1. Carregar Doc
+            </div>
+            <div className={currentStep === 'templateCreation' || progress >=40 ? 'text-primary font-semibold' : 'text-muted-foreground'}>
+                <Edit3 className="inline-block mr-1 h-4 w-4" />2. Criar Modelo
+            </div>
+            <div className={currentStep === 'formDisplay' || progress >=70 ? 'text-primary font-semibold' : 'text-muted-foreground'}>
+                <Wand2 className="inline-block mr-1 h-4 w-4" />3. Preencher IA
+            </div>
+            <div className={currentStep === 'finalReview' || progress >=100 ? 'text-primary font-semibold' : 'text-muted-foreground'}>
+                <CheckCircle2 className="inline-block mr-1 h-4 w-4" />4. Revisar
+            </div>
         </div>
     </div>
   );
@@ -167,23 +242,31 @@ export default function SmartFormFillerPage() {
 
       <main className="w-full max-w-3xl space-y-8">
         <StepIndicator />
-        {currentStep === 'templateCreation' && (
-          <TemplateCreator onTemplateCreated={handleTemplateCreated} />
-        )}
+
         {currentStep === 'documentUpload' && (
           <DocumentUploader 
             onDocumentUploaded={handleDocumentUploaded} 
-            isLoading={isLoading}
-            onBack={goBack}
+            isLoading={isLoadingDocumentProcessing}
+            // No onBack for the first step, or implement reset logic here
           />
         )}
+
+        {currentStep === 'templateCreation' && (
+          <TemplateCreator 
+            onTemplateCreated={handleTemplateFinalized} 
+            currentFields={templateFields} // Pass AI suggestions or empty array
+            onBack={goBack} // Allows going back to document upload
+          />
+        )}
+
         {currentStep === 'formDisplay' && templateFields.length > 0 && filledData && (
           <FilledFormDisplay
             template={templateFields}
             filledData={filledData}
-            onFormSubmit={handleFormSubmit}
+            onFormSubmit={handleFormSubmitEdited}
             onBack={goBack}
-            onStartOver={resetApp}
+            onStartOver={resetApp} // Or onUploadNewDocument
+            isLoading={isLoadingFormFilling}
           />
         )}
         {currentStep === 'finalReview' && finalFormData && templateFields.length > 0 && (
@@ -226,4 +309,3 @@ export default function SmartFormFillerPage() {
     </div>
   );
 }
-
