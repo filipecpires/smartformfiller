@@ -48,6 +48,8 @@ const ExtractFieldValueInputSchema = z.object({
     ),
   fieldLabel: z.string().describe('The label or question associated with the field for which to extract the value.'),
 });
+export type ExtractFieldValueInput = z.infer<typeof ExtractFieldValueInputSchema>;
+
 
 const ExtractFieldValueOutputSchema = z.object({
   value: z.string().describe('The extracted value for the field. If no value is found, return an empty string or a sensible default like "Não encontrado".'),
@@ -89,15 +91,15 @@ const extractFieldValueTool = ai.defineTool(
     console.log(`[extractFieldValueTool] called for field: ${input.fieldLabel}`);
     try {
       const { output } = await extractSingleFieldValuePrompt(input);
-      if (output) {
+      if (output && typeof output.value === 'string') {
         console.log(`[extractFieldValueTool] Extracted value for "${input.fieldLabel}": ${output.value}`);
         return output;
       }
-      console.warn(`[extractFieldValueTool] No output from prompt for field: ${input.fieldLabel}`);
-      return { value: "Não encontrado (erro no prompt)" };
+      console.warn(`[extractFieldValueTool] No output or invalid output type from prompt for field: ${input.fieldLabel}. Output:`, output);
+      return { value: "Não encontrado (IA não retornou valor)" };
     } catch (e) {
       console.error(`[extractFieldValueTool] Error extracting value for "${input.fieldLabel}":`, e);
-      return { value: "Erro ao extrair" };
+      return { value: "Erro ao extrair valor" };
     }
   }
 );
@@ -107,71 +109,47 @@ const fillFormFieldsFlow = ai.defineFlow(
     name: 'fillFormFieldsFlow',
     inputSchema: FillFormFieldsInputSchema,
     outputSchema: FillFormFieldsOutputSchema,
-    tools: [extractFieldValueTool],
+    // This flow now programmatically calls the tool/prompt, so tools are not listed here for LLM decision.
   },
   async (input) => {
-    // This flow will use a main prompt that orchestrates the tool calls.
-    const systemPrompt = `You are an AI assistant designed to fill out form fields by extracting information from a provided document.
-For each field in the 'formTemplate', you MUST use the 'extractFieldValue' tool to get the value from the 'documentDataUri'.
-The 'fieldLabel' for the tool should be the 'label' of the current form field.
-When using the tool, consider the context of the field label. For instance, if the label is "Nome da Mãe", search for a name associated with the concept of 'mother'. If the label is "Endereço Completo", look for a full address.
-Collect all results and return them in the specified output format (an array of objects, where each object has 'fieldId' and 'value').
-Ensure that for every field in the input 'formTemplate', there is a corresponding entry in the 'filledFields' output array.
-If the tool returns "Não encontrado" or similar for a field, use that value for the 'value' property.
-The 'fieldId' in the output must match the 'id' from the input 'formTemplate'.
+    const { documentDataUri, formTemplate } = input;
+    const filledFieldsResult: Array<z.infer<typeof FilledFormFieldSchema>> = [];
 
-Document: {{media url=documentDataUri}}
+    console.log(`[fillFormFieldsFlow] Starting to fill ${formTemplate.length} fields.`);
 
-Form Template:
-{{#each formTemplate}}
-- Field ID: {{this.id}}, Label: {{this.label}}, Type: {{this.type}}
-{{/each}}
-`;
-
-    const fillAllFieldsPrompt = ai.definePrompt({
-        name: 'fillAllFieldsOrchestrationPrompt',
-        input: { schema: FillFormFieldsInputSchema },
-        output: { schema: FillFormFieldsOutputSchema },
-        tools: [extractFieldValueTool],
-        prompt: systemPrompt,
-        model: 'googleai/gemini-2.0-flash', 
-        config: {
-            // temperature: 0.3 // Lower temperature for more deterministic tool usage
-        }
-    });
-
-    const { output } = await fillAllFieldsPrompt(input);
-
-    if (!output || !output.filledFields || !Array.isArray(output.filledFields)) {
-      console.error("Flow Error: Main prompt did not return the expected filledFields array structure.", output);
-      return { 
-        filledFields: input.formTemplate.map(field => ({
+    for (const field of formTemplate) {
+      try {
+        console.log(`[fillFormFieldsFlow] Processing field: ${field.label} (ID: ${field.id})`);
+        
+        const toolInput: ExtractFieldValueInput = {
+          documentDataUri: documentDataUri,
+          fieldLabel: field.label,
+        };
+        
+        const extractionResult = await extractFieldValueTool(toolInput);
+        
+        filledFieldsResult.push({
           fieldId: field.id,
-          value: "Erro no processamento do formulário"
-        }))
-      };
-    }
-    
-    // Ensure all fields have an entry, even if the LLM missed some
-    const finalFilledFields = input.formTemplate.map(templateField => {
-        const foundField = output.filledFields.find(f => f.fieldId === templateField.id);
-        if (foundField && typeof foundField.value === 'string') { // ensure value is a string
-            return foundField;
-        }
-        // If LLM missed a field or value is not a string, provide a default
-        console.warn(`Field ${templateField.id} ("${templateField.label}") was not processed correctly by LLM or value was not a string. Found:`, foundField)
-        return { fieldId: templateField.id, value: "Não processado" };
-    });
+          value: extractionResult.value, 
+        });
+        console.log(`[fillFormFieldsFlow]     Value for "${field.label}": ${extractionResult.value}`);
 
-    return { filledFields: finalFilledFields };
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : "Unknown error during field processing";
+        console.error(`[fillFormFieldsFlow] Error processing field "${field.label}" (ID: ${field.id}):`, errorMessage);
+        filledFieldsResult.push({
+          fieldId: field.id,
+          value: "Erro ao processar este campo",
+        });
+      }
+    }
+    console.log(`[fillFormFieldsFlow] Finished processing all fields. Found ${filledFieldsResult.length} results.`);
+    return { filledFields: filledFieldsResult };
   }
 );
 
 export async function fillFormFields(input: FillFormFieldsInput): Promise<FillFormFieldsOutput> {
-  // The flow now directly returns the FillFormFieldsOutput type (array of {fieldId, value})
-  // The conversion to Record<string, string> will be handled by the client (page.tsx)
   return fillFormFieldsFlow(input);
 }
 
 export type {FormFieldSchema};
-
