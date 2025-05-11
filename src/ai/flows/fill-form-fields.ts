@@ -58,13 +58,22 @@ const extractSingleFieldValuePrompt = ai.definePrompt({
   name: 'extractSingleFieldValuePrompt',
   input: { schema: ExtractFieldValueInputSchema },
   output: { schema: ExtractFieldValueOutputSchema },
-  prompt: `Analyze the following document:
+  prompt: `Analyze the provided document carefully. Your task is to extract a specific piece of information.
 Document: {{media url=documentDataUri}}
 
-Extract the value for the field with the label: "{{fieldLabel}}".
-If you find the value, return it. If you cannot find a specific value for the field, return "Não encontrado".
-Do not make up information. Only return information explicitly found in the document relevant to the field label.
-Consider the context of the field label to find the most relevant information. For example, if the label is "Nome Completo", look for a full name. If it's "Data de Nascimento", look for a date.
+You need to find the value for the field described by the following label: "{{fieldLabel}}".
+
+Instructions:
+1.  Accuracy is paramount. Only return information explicitly found in the document that directly corresponds to the field label.
+2.  Pay close attention to the ENTIRE field label to understand its precise context. Disambiguate if similar terms appear elsewhere in the document.
+    For example:
+    - If the label is "Nome Completo do Contratante", find the full name associated specifically with the 'Contratante' role, not just any name in the document.
+    - If the label is "Data de Início do Contrato", identify the date that explicitly marks the beginning of the contract.
+    - If the label is "CPF do Beneficiário", look for a CPF number clearly linked to a 'Beneficiário'.
+    - If the label is "Valor da Multa", extract the monetary amount specified as a 'Multa' (fine/penalty).
+    - If a label is "Endereço - Complemento", find the address supplement (like apartment number), not the main street address.
+3.  If, after careful analysis, you cannot find a specific value for the field, return the exact string "Não encontrado". Do NOT invent or infer information.
+4.  Return only the extracted value as a string.
 `,
 });
 
@@ -165,3 +174,4 @@ export async function fillFormFields(input: FillFormFieldsInput): Promise<FillFo
 }
 
 export type {FormFieldSchema};
+
