@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect } from 'react';
@@ -69,6 +70,12 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
                 {field.type === 'date' && (
                   <Input type="date" {...formField} className="mt-1" disabled={isLoading} />
                 )}
+                {field.type === 'number' && (
+                  <Input type="number" {...formField} placeholder={`Digite ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
+                )}
+                {field.type === 'email' && (
+                  <Input type="email" {...formField} placeholder={`Digite ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
+                )}
                 {field.type === 'dropdown' && field.options && (
                   <Select onValueChange={formField.onChange} defaultValue={formField.value} disabled={isLoading}>
                     <SelectTrigger className="w-full mt-1">
@@ -81,7 +88,8 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
                     </SelectContent>
                   </Select>
                 )}
-                {!(field.type === 'text' || field.type === 'date' || field.type === 'dropdown') && (
+                {/* Fallback for any other types or if dropdown has no options (should ideally not happen for dropdown) */}
+                {!(field.type === 'text' || field.type === 'date' || field.type === 'number' || field.type === 'email' || (field.type === 'dropdown' && field.options)) && (
                      <Input {...formField} placeholder={`Valor para ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
                 )}
               </>

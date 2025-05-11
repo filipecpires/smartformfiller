@@ -136,7 +136,12 @@ export default function SmartFormFillerPage() {
         aiSuggestedFieldsMapped = suggestionOutput.suggestedFields.map((sField: AISuggestedField) => ({
           id: generateFieldId(sField.label),
           label: sField.label,
-          type: ['text', 'date', 'dropdown'].includes(sField.type) ? sField.type as FieldType : (sField.type === 'dropdown_candidate' ? 'dropdown' : 'text'),
+          type: ['text', 'date', 'number', 'email'].includes(sField.type) 
+                ? sField.type as FieldType 
+                : (sField.type === 'dropdown_candidate' ? 'dropdown' : 'text'),
+          options: sField.type === 'dropdown_candidate' && sField.possibleOptions && sField.possibleOptions.length > 0 
+                   ? sField.possibleOptions 
+                   : undefined,
         }));
         toast({ title: "Sugestões Prontas!", description: `${aiSuggestedFieldsMapped.length} campos foram sugeridos pela IA. Revise ou crie seu modelo.`, duration: 6000 });
       } else {
@@ -204,7 +209,12 @@ export default function SmartFormFillerPage() {
     toast({ title: "Preenchendo Formulário...", description: "A IA está preenchendo os campos. Isso pode levar alguns instantes." });
 
     try {
-      const aiTemplateForFilling: AIFormFieldSchema[] = finalizedTemplate.map(({ options, ...rest }) => rest);
+      const aiTemplateForFilling: AIFormFieldSchema[] = finalizedTemplate.map(({ options, ...rest }) => ({
+        ...rest,
+        // Ensure `type` sent to AI is a string, as expected by AIFormFieldSchema
+        type: rest.type as string, 
+      }));
+
       const fillInput: FillFormFieldsInput = {
         documentDataUri: documentDataUriForAI,
         formTemplate: aiTemplateForFilling,
@@ -379,4 +389,3 @@ export default function SmartFormFillerPage() {
     </div>
   );
 }
-
