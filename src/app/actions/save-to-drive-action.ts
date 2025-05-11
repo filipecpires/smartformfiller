@@ -1,4 +1,3 @@
-
 'use server';
 
 import type { CustomFormFieldSchema, GoogleDriveSaveConfig, SubfolderConfigItem } from '@/types';
@@ -34,31 +33,26 @@ export async function saveToDriveAction(
       for (const sconf of config.subfolderConfig) {
         let subfolderNamePart = '';
         if (sconf.type === 'field') {
-          // Ensure sconf.value (fieldId) is not empty and exists in formData
-          if (sconf.value && formData[sconf.value] && formData[sconf.value].trim() !== '') {
-            subfolderNamePart = formData[sconf.value].replace(/[^\w\s.-]/gi, '_').trim();
+          // sconf.value is the fieldId. It's guaranteed to be a non-empty string by client filter.
+          const fieldValue = formData[sconf.value];
+          if (fieldValue && fieldValue.trim() !== '') {
+            subfolderNamePart = fieldValue.replace(/[^\w\s.-]/gi, '_').trim();
           } else {
-            console.warn(`Subfolder field ID '${sconf.value}' is empty, not found in form data, or its value is empty. Stopping further subfolder creation.`);
+            console.warn(`Subfolder configuration for field ID '${sconf.value}' resulted in an empty name because the field is missing or empty in form data. Stopping further subfolder creation.`);
             break; 
           }
         } else { // type === 'static'
-          // Ensure sconf.value (custom name) is not empty
-          if (sconf.value && sconf.value.trim() !== '') {
-            subfolderNamePart = sconf.value.replace(/[^\w\s.-]/gi, '_').trim();
-          } else {
-            console.warn(`Custom subfolder name is empty. Stopping further subfolder creation.`);
-            break;
-          }
+          // sconf.value is the custom static name. It's guaranteed to be a non-empty string by client filter.
+          subfolderNamePart = sconf.value.replace(/[^\w\s.-]/gi, '_').trim();
         }
 
-        // If, after processing, subfolderNamePart is valid, create the folder
-        if (subfolderNamePart) {
+        // After deriving subfolderNamePart, check if it's usable
+        if (subfolderNamePart && subfolderNamePart.trim() !== '') {
           currentParentFolderId = await findOrCreateFolder(subfolderNamePart, config.accessToken, currentParentFolderId);
           subfolderPathParts.push(subfolderNamePart);
         } else {
-          // This case should ideally be caught by the checks above, but as a fallback.
-          console.warn(`Resolved subfolder name is empty. Stopping subfolder creation at this level.`);
-          break;
+          console.warn(`Derived subfolder name for config item (type: ${sconf.type}, original value: '${sconf.value}') is empty after sanitization or due to empty form field. Stopping subfolder creation.`);
+          break; 
         }
       }
     }
@@ -99,9 +93,24 @@ export async function saveToDriveAction(
       driveFolderLink: `https://drive.google.com/drive/folders/${targetFolderId}`
     };
 
-  } catch (error) {
-    console.error('Erro ao salvar no Google Drive:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro desconhecido.';
+  } catch (error: any) { // Catch 'any' for more robust error handling
+    console.error('Erro ao salvar no Google Drive (raw error object):', error);
+    
+    let errorMessage = 'Ocorreu um erro desconhecido ao processar sua solicitação no servidor.';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    } else if (error && typeof error.toString === 'function') {
+      // Attempt to get a string representation if it's not an Error or string
+      const errorString = error.toString();
+      if (errorString !== '[object Object]') { // Avoid generic object stringification
+        errorMessage = errorString;
+      } else if (error.message && typeof error.message === 'string') { // Check for a message property
+        errorMessage = error.message;
+      }
+    }
+
     return {
       success: false,
       message: `Falha ao salvar no Google Drive: ${errorMessage}`,
