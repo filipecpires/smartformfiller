@@ -63,7 +63,8 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
           <FormItem className="mb-4 p-4 border rounded-md bg-card/50 shadow-sm">
             <FormLabel className="text-base font-medium">{field.label}</FormLabel>
             <FormControl>
-              <>
+              {/* Wrap conditional inputs in a div to receive the id from FormControl */}
+              <div>
                 {field.type === 'text' && (
                   <Input {...formField} placeholder={`Digite ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
                 )}
@@ -92,7 +93,7 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
                 {!(field.type === 'text' || field.type === 'date' || field.type === 'number' || field.type === 'email' || (field.type === 'dropdown' && field.options)) && (
                      <Input {...formField} placeholder={`Valor para ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
                 )}
-              </>
+              </div>
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -140,3 +141,4 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
     </Card>
   );
 }
+
