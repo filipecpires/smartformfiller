@@ -18,7 +18,7 @@ export const fieldTypeLabels: Record<FieldType, string> = {
 export interface GoogleDriveSaveConfig {
   accessToken: string;
   baseFolderName: string;
-  subfolderFieldId?: string; // ID of the form field to use for subfolder name
+  subfolderFieldIds?: string[]; // Array of field IDs for subfolder hierarchy
   fileNameFieldId?: string; // ID of the form field to use for filename prefix
 }
 

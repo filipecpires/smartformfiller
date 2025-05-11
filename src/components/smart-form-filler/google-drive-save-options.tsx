@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Save, AlertTriangle, Loader2, ExternalLink } from "lucide-react";
+import { Save, AlertTriangle, Loader2, ExternalLink, FolderPlus, Trash2 } from "lucide-react";
 import type { CustomFormFieldSchema, GoogleDriveSaveConfig } from '@/types';
 import { saveToDriveAction } from '@/app/actions/save-to-drive-action';
 import { useToast } from "@/hooks/use-toast";
@@ -24,15 +24,42 @@ interface GoogleDriveSaveOptionsProps {
   finalFormData: Record<string, string>;
 }
 
+const MAX_SUBFOLDER_LEVELS = 3;
+
 export function GoogleDriveSaveOptions({ templateFields, finalFormData }: GoogleDriveSaveOptionsProps) {
   const [accessToken, setAccessToken] = useState('');
   const [baseFolderName, setBaseFolderName] = useState('Formulários Preenchidos IA');
-  const [subfolderFieldId, setSubfolderFieldId] = useState<string | undefined>(undefined);
+  const [subfolderFieldIds, setSubfolderFieldIds] = useState<(string | undefined)[]>(Array(MAX_SUBFOLDER_LEVELS).fill(undefined));
   const [fileNameFieldId, setFileNameFieldId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [showTokenWarning, setShowTokenWarning] = useState(true);
   const { toast } = useToast();
   const [driveLinks, setDriveLinks] = useState<{file?: string, folder?: string} | null>(null);
+  const [numSubfolderLevels, setNumSubfolderLevels] = useState(0);
+
+
+  const handleSubfolderFieldChange = (index: number, value: string | undefined) => {
+    const newSubfolderFieldIds = [...subfolderFieldIds];
+    newSubfolderFieldIds[index] = value === "none" ? undefined : value;
+    setSubfolderFieldIds(newSubfolderFieldIds);
+  };
+
+  const addSubfolderLevel = () => {
+    if (numSubfolderLevels < MAX_SUBFOLDER_LEVELS) {
+      setNumSubfolderLevels(numSubfolderLevels + 1);
+    }
+  };
+
+  const removeSubfolderLevel = (index: number) => {
+    const newSubfolderFieldIds = [...subfolderFieldIds];
+    // Shift subsequent levels up and clear the last one
+    for (let i = index; i < MAX_SUBFOLDER_LEVELS - 1; i++) {
+      newSubfolderFieldIds[i] = newSubfolderFieldIds[i+1];
+    }
+    newSubfolderFieldIds[MAX_SUBFOLDER_LEVELS - 1] = undefined;
+    setSubfolderFieldIds(newSubfolderFieldIds);
+    setNumSubfolderLevels(numSubfolderLevels - 1);
+  };
 
 
   const handleSaveToDrive = async () => {
@@ -49,11 +76,13 @@ export function GoogleDriveSaveOptions({ templateFields, finalFormData }: Google
     setDriveLinks(null);
     toast({ title: "Salvando no Google Drive...", description: "Isso pode levar alguns instantes." });
 
+    const activeSubfolderFieldIds = subfolderFieldIds.slice(0, numSubfolderLevels).filter(id => id !== undefined) as string[];
+
     const config: GoogleDriveSaveConfig = {
       accessToken,
       baseFolderName,
-      subfolderFieldId: subfolderFieldId, // Already handles 'none' by being undefined if not selected
-      fileNameFieldId: fileNameFieldId, // Already handles 'none' by being undefined if not selected
+      subfolderFieldIds: activeSubfolderFieldIds.length > 0 ? activeSubfolderFieldIds : undefined,
+      fileNameFieldId: fileNameFieldId, 
     };
 
     try {
@@ -132,21 +161,37 @@ export function GoogleDriveSaveOptions({ templateFields, finalFormData }: Google
           />
         </div>
 
-        <div>
-          <Label htmlFor="subfolderFieldId">Criar Subpasta com base no Campo (Opcional)</Label>
-          <Select value={subfolderFieldId} onValueChange={(value) => setSubfolderFieldId(value === "none" ? undefined : value)}>
-            <SelectTrigger id="subfolderFieldId" className="w-full mt-1">
-              <SelectValue placeholder="Nenhum (salvar na pasta base)" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Nenhum (salvar na pasta base)</SelectItem>
-              {templateFields.map(field => (
-                <SelectItem key={field.id} value={field.id}>{field.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground mt-1">O valor do campo selecionado será usado como nome da subpasta.</p>
+        <div className="space-y-3">
+            <Label>Estrutura de Subpastas (Opcional)</Label>
+            {Array.from({ length: numSubfolderLevels }).map((_, index) => (
+                 <div key={`subfolder-level-${index}`} className="flex items-center gap-2">
+                    <Select 
+                        value={subfolderFieldIds[index]} 
+                        onValueChange={(value) => handleSubfolderFieldChange(index, value === "none" ? undefined : value)}
+                    >
+                        <SelectTrigger id={`subfolderFieldId-${index}`} className="w-full">
+                        <SelectValue placeholder={`Nível ${index + 1}: Usar valor do campo...`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                        <SelectItem value="none">Nível {index + 1}: Nenhum</SelectItem>
+                        {templateFields.map(field => (
+                            <SelectItem key={field.id} value={field.id}>{field.label}</SelectItem>
+                        ))}
+                        </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="icon" onClick={() => removeSubfolderLevel(index)} aria-label={`Remover nível ${index + 1} de subpasta`}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                 </div>
+            ))}
+            {numSubfolderLevels < MAX_SUBFOLDER_LEVELS && (
+                <Button variant="outline" onClick={addSubfolderLevel} className="w-full sm:w-auto">
+                    <FolderPlus className="mr-2 h-4 w-4" /> Adicionar Nível de Subpasta
+                </Button>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">Crie uma hierarquia de pastas. O valor de cada campo selecionado será usado como nome da subpasta naquele nível. Você pode reordenar a seleção dos campos para alterar a hierarquia.</p>
         </div>
+
 
         <div>
           <Label htmlFor="fileNameFieldId">Usar Campo para Nome do Arquivo (Prefixo - Opcional)</Label>

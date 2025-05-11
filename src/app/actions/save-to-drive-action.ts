@@ -26,19 +26,32 @@ export async function saveToDriveAction(
   try {
     // 1. Create/Get Base Folder
     const baseFolderId = await findOrCreateFolder(config.baseFolderName, config.accessToken, 'root');
-    let targetFolderId = baseFolderId;
-    let subfolderName = '';
+    let currentParentFolderId = baseFolderId;
+    const subfolderPathParts: string[] = [];
 
-    // 2. Create/Get Subfolder if configured
-    if (config.subfolderFieldId && formData[config.subfolderFieldId]) {
-      subfolderName = formData[config.subfolderFieldId].replace(/[^\w\s.-]/gi, '_').trim(); // Sanitize subfolder name
-      if (subfolderName) {
-        targetFolderId = await findOrCreateFolder(subfolderName, config.accessToken, baseFolderId);
+    // 2. Create/Get Subfolders if configured
+    if (config.subfolderFieldIds && config.subfolderFieldIds.length > 0) {
+      for (const fieldId of config.subfolderFieldIds) {
+        if (formData[fieldId]) {
+          const subfolderNamePart = formData[fieldId].replace(/[^\w\s.-]/gi, '_').trim();
+          if (subfolderNamePart) {
+            currentParentFolderId = await findOrCreateFolder(subfolderNamePart, config.accessToken, currentParentFolderId);
+            subfolderPathParts.push(subfolderNamePart);
+          } else {
+            // If a field resolves to an empty subfolder name, stop creating deeper subfolders
+            break; 
+          }
+        } else {
+          // If a field ID for subfolder is missing in formData, stop creating deeper subfolders
+          break; 
+        }
       }
     }
+    const targetFolderId = currentParentFolderId;
+    const fullFolderPath = [config.baseFolderName, ...subfolderPathParts].join(' / ');
 
     // 3. Prepare .txt file content
-    let fileContent = `Formulário: ${config.baseFolderName}${subfolderName ? ` / ${subfolderName}` : ''}\n`;
+    let fileContent = `Formulário: ${fullFolderPath}\n`;
     fileContent += `Data do Preenchimento: ${new Date().toLocaleString('pt-BR')}\n\n`;
     fileContent += "Campos Preenchidos:\n";
     templateFields.forEach(field => {
@@ -66,7 +79,7 @@ export async function saveToDriveAction(
 
     return {
       success: true,
-      message: `Arquivo "${createdFile.name}" salvo com sucesso no Google Drive!`,
+      message: `Arquivo "${createdFile.name}" salvo com sucesso no Google Drive em "${fullFolderPath}"!`,
       driveFileLink: createdFile.webViewLink,
       driveFolderLink: `https://drive.google.com/drive/folders/${targetFolderId}`
     };
