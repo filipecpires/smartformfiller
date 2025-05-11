@@ -15,10 +15,15 @@ export const fieldTypeLabels: Record<FieldType, string> = {
   dropdown: "Seleção",
 };
 
+export interface SubfolderConfigItem {
+  type: 'field' | 'static'; // Type of subfolder name source
+  value: string;            // Field ID if type is 'field', or custom name if type is 'static'
+}
+
 export interface GoogleDriveSaveConfig {
   accessToken: string;
   baseFolderName: string;
-  subfolderFieldIds?: string[]; // Array of field IDs for subfolder hierarchy
+  subfolderConfig?: SubfolderConfigItem[]; // Array of subfolder configurations
   fileNameFieldId?: string; // ID of the form field to use for filename prefix
 }
 

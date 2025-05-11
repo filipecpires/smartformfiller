@@ -1,7 +1,7 @@
 
 'use server';
 
-import type { CustomFormFieldSchema, GoogleDriveSaveConfig } from '@/types';
+import type { CustomFormFieldSchema, GoogleDriveSaveConfig, SubfolderConfigItem } from '@/types';
 import { findOrCreateFolder, uploadTextFile } from '@/services/google-drive-service';
 
 interface SaveToDriveResult {
@@ -30,20 +30,35 @@ export async function saveToDriveAction(
     const subfolderPathParts: string[] = [];
 
     // 2. Create/Get Subfolders if configured
-    if (config.subfolderFieldIds && config.subfolderFieldIds.length > 0) {
-      for (const fieldId of config.subfolderFieldIds) {
-        if (formData[fieldId]) {
-          const subfolderNamePart = formData[fieldId].replace(/[^\w\s.-]/gi, '_').trim();
-          if (subfolderNamePart) {
-            currentParentFolderId = await findOrCreateFolder(subfolderNamePart, config.accessToken, currentParentFolderId);
-            subfolderPathParts.push(subfolderNamePart);
+    if (config.subfolderConfig && config.subfolderConfig.length > 0) {
+      for (const sconf of config.subfolderConfig) {
+        let subfolderNamePart = '';
+        if (sconf.type === 'field') {
+          // Ensure sconf.value (fieldId) is not empty and exists in formData
+          if (sconf.value && formData[sconf.value] && formData[sconf.value].trim() !== '') {
+            subfolderNamePart = formData[sconf.value].replace(/[^\w\s.-]/gi, '_').trim();
           } else {
-            // If a field resolves to an empty subfolder name, stop creating deeper subfolders
+            console.warn(`Subfolder field ID '${sconf.value}' is empty, not found in form data, or its value is empty. Stopping further subfolder creation.`);
             break; 
           }
+        } else { // type === 'static'
+          // Ensure sconf.value (custom name) is not empty
+          if (sconf.value && sconf.value.trim() !== '') {
+            subfolderNamePart = sconf.value.replace(/[^\w\s.-]/gi, '_').trim();
+          } else {
+            console.warn(`Custom subfolder name is empty. Stopping further subfolder creation.`);
+            break;
+          }
+        }
+
+        // If, after processing, subfolderNamePart is valid, create the folder
+        if (subfolderNamePart) {
+          currentParentFolderId = await findOrCreateFolder(subfolderNamePart, config.accessToken, currentParentFolderId);
+          subfolderPathParts.push(subfolderNamePart);
         } else {
-          // If a field ID for subfolder is missing in formData, stop creating deeper subfolders
-          break; 
+          // This case should ideally be caught by the checks above, but as a fallback.
+          console.warn(`Resolved subfolder name is empty. Stopping subfolder creation at this level.`);
+          break;
         }
       }
     }
@@ -93,4 +108,3 @@ export async function saveToDriveAction(
     };
   }
 }
-
