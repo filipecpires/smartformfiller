@@ -33,7 +33,6 @@ export async function saveToDriveAction(
       for (const sconf of config.subfolderConfig) {
         let subfolderNamePart = '';
         if (sconf.type === 'field') {
-          // sconf.value is the fieldId. It's guaranteed to be a non-empty string by client filter.
           const fieldValue = formData[sconf.value];
           if (fieldValue && fieldValue.trim() !== '') {
             subfolderNamePart = fieldValue.replace(/[^\w\s.-]/gi, '_').trim();
@@ -42,11 +41,9 @@ export async function saveToDriveAction(
             break; 
           }
         } else { // type === 'static'
-          // sconf.value is the custom static name. It's guaranteed to be a non-empty string by client filter.
           subfolderNamePart = sconf.value.replace(/[^\w\s.-]/gi, '_').trim();
         }
 
-        // After deriving subfolderNamePart, check if it's usable
         if (subfolderNamePart && subfolderNamePart.trim() !== '') {
           currentParentFolderId = await findOrCreateFolder(subfolderNamePart, config.accessToken, currentParentFolderId);
           subfolderPathParts.push(subfolderNamePart);
@@ -76,7 +73,7 @@ export async function saveToDriveAction(
     let fileName = `dados_formulario_${timestamp}.txt`;
     
     if (config.fileNameFieldId && formData[config.fileNameFieldId]) {
-      const prefix = formData[config.fileNameFieldId].replace(/[^\w\s.-]/gi, '_').trim();
+      const prefix = String(formData[config.fileNameFieldId]).replace(/[^\w\s.-]/gi, '_').trim();
       if (prefix) {
         fileName = `${prefix}_${timestamp}.txt`;
       }
@@ -93,27 +90,35 @@ export async function saveToDriveAction(
       driveFolderLink: `https://drive.google.com/drive/folders/${targetFolderId}`
     };
 
-  } catch (error: any) { // Catch 'any' for more robust error handling
-    console.error('Erro ao salvar no Google Drive (raw error object):', error);
+  } catch (error: any) {
+    // Log the full error object for server-side debugging first.
+    console.error('saveToDriveAction: Raw error object during Google Drive save:', error);
     
-    let errorMessage = 'Ocorreu um erro desconhecido ao processar sua solicitação no servidor.';
+    let detailedErrorMessage = 'Ocorreu um erro desconhecido ao processar sua solicitação no servidor.';
+
     if (error instanceof Error) {
-      errorMessage = error.message;
+      detailedErrorMessage = error.message;
     } else if (typeof error === 'string') {
-      errorMessage = error;
+      detailedErrorMessage = error;
+    } else if (error && typeof error.message === 'string') {
+      // Handle cases where error is an object with a 'message' string property
+      detailedErrorMessage = error.message;
     } else if (error && typeof error.toString === 'function') {
-      // Attempt to get a string representation if it's not an Error or string
       const errorString = error.toString();
-      if (errorString !== '[object Object]') { // Avoid generic object stringification
-        errorMessage = errorString;
-      } else if (error.message && typeof error.message === 'string') { // Check for a message property
-        errorMessage = error.message;
+      // Avoid generic "[object Object]" if toString() doesn't provide useful info
+      if (errorString !== '[object Object]' && errorString.trim() !== '') {
+        detailedErrorMessage = errorString;
       }
     }
+    // Ensure the message is not excessively long, as a precaution.
+    if (detailedErrorMessage.length > 1000) {
+        detailedErrorMessage = detailedErrorMessage.substring(0, 1000) + "... (mensagem truncada)";
+    }
+
 
     return {
       success: false,
-      message: `Falha ao salvar no Google Drive: ${errorMessage}`,
+      message: `Falha ao salvar no Google Drive: ${detailedErrorMessage}`,
     };
   }
 }
