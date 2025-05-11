@@ -28,6 +28,7 @@ export function GoogleDriveSaveOptions({ templateFields, finalFormData }: Google
   const [accessToken, setAccessToken] = useState('');
   const [baseFolderName, setBaseFolderName] = useState('Formulários Preenchidos IA');
   const [subfolderFieldId, setSubfolderFieldId] = useState<string | undefined>(undefined);
+  const [fileNameFieldId, setFileNameFieldId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [showTokenWarning, setShowTokenWarning] = useState(true);
   const { toast } = useToast();
@@ -51,7 +52,8 @@ export function GoogleDriveSaveOptions({ templateFields, finalFormData }: Google
     const config: GoogleDriveSaveConfig = {
       accessToken,
       baseFolderName,
-      subfolderFieldId: subfolderFieldId === "none" ? undefined : subfolderFieldId,
+      subfolderFieldId: subfolderFieldId, // Already handles 'none' by being undefined if not selected
+      fileNameFieldId: fileNameFieldId, // Already handles 'none' by being undefined if not selected
     };
 
     try {
@@ -132,7 +134,7 @@ export function GoogleDriveSaveOptions({ templateFields, finalFormData }: Google
 
         <div>
           <Label htmlFor="subfolderFieldId">Criar Subpasta com base no Campo (Opcional)</Label>
-          <Select value={subfolderFieldId} onValueChange={setSubfolderFieldId}>
+          <Select value={subfolderFieldId} onValueChange={(value) => setSubfolderFieldId(value === "none" ? undefined : value)}>
             <SelectTrigger id="subfolderFieldId" className="w-full mt-1">
               <SelectValue placeholder="Nenhum (salvar na pasta base)" />
             </SelectTrigger>
@@ -145,6 +147,23 @@ export function GoogleDriveSaveOptions({ templateFields, finalFormData }: Google
           </Select>
           <p className="text-xs text-muted-foreground mt-1">O valor do campo selecionado será usado como nome da subpasta.</p>
         </div>
+
+        <div>
+          <Label htmlFor="fileNameFieldId">Usar Campo para Nome do Arquivo (Prefixo - Opcional)</Label>
+          <Select value={fileNameFieldId} onValueChange={(value) => setFileNameFieldId(value === "none" ? undefined : value)}>
+            <SelectTrigger id="fileNameFieldId" className="w-full mt-1">
+              <SelectValue placeholder="Padrão (timestamp)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Padrão (timestamp)</SelectItem>
+              {templateFields.map(field => (
+                <SelectItem key={field.id} value={field.id}>{field.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">O valor do campo selecionado será usado como prefixo do nome do arquivo, seguido por um timestamp.</p>
+        </div>
+
 
         <Button onClick={handleSaveToDrive} disabled={isLoading || !accessToken || !baseFolderName} className="w-full">
           {isLoading ? (

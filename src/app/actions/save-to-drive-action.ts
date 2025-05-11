@@ -31,7 +31,7 @@ export async function saveToDriveAction(
 
     // 2. Create/Get Subfolder if configured
     if (config.subfolderFieldId && formData[config.subfolderFieldId]) {
-      subfolderName = formData[config.subfolderFieldId].replace(/[^\w\s.-]/gi, '_'); // Sanitize subfolder name
+      subfolderName = formData[config.subfolderFieldId].replace(/[^\w\s.-]/gi, '_').trim(); // Sanitize subfolder name
       if (subfolderName) {
         targetFolderId = await findOrCreateFolder(subfolderName, config.accessToken, baseFolderId);
       }
@@ -49,14 +49,16 @@ export async function saveToDriveAction(
     fileContent += `--------------------------------------------------\n`;
 
 
-    // 4. Define file name (e.g., using a timestamp or a specific field)
+    // 4. Define file name
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     let fileName = `dados_formulario_${timestamp}.txt`;
-    // Optionally, use a field for the filename, e.g., an ID or name field
-    // const nameFieldForFile = templateFields.find(f => f.label.toLowerCase().includes('nome'))?.id;
-    // if (nameFieldForFile && formData[nameFieldForFile]) {
-    //   fileName = `${formData[nameFieldForFile].replace(/[^\w\s.-]/gi, '_')}_${timestamp}.txt`;
-    // }
+    
+    if (config.fileNameFieldId && formData[config.fileNameFieldId]) {
+      const prefix = formData[config.fileNameFieldId].replace(/[^\w\s.-]/gi, '_').trim();
+      if (prefix) {
+        fileName = `${prefix}_${timestamp}.txt`;
+      }
+    }
 
 
     // 5. Upload .txt file

@@ -17,5 +17,6 @@ export interface GoogleDriveSaveConfig {
   accessToken: string;
   baseFolderName: string;
   subfolderFieldId?: string; // ID of the form field to use for subfolder name
+  fileNameFieldId?: string; // ID of the form field to use for filename prefix
 }
 
