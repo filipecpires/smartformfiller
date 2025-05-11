@@ -32,13 +32,13 @@ interface FilledFormDisplayProps {
 
 export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, onStartOver, isLoading = false }: FilledFormDisplayProps) {
   const form = useForm<Record<string, string>>({
-    defaultValues: filledData,
+    values: filledData, // Use `values` to keep form synced with prop. `filledData` is guaranteed non-null by parent.
   });
   const { toast } = useToast();
 
-  useEffect(() => {
-    form.reset(filledData);
-  }, [filledData, form]);
+  // The useEffect calling form.reset(filledData) was removed.
+  // `useForm({ values: filledData })` handles updates when `filledData` prop changes.
+  // This avoids the "Cannot update a component while rendering a different component" error.
 
   const onSubmit = (data: Record<string, string>) => {
     onFormSubmit(data);
@@ -78,7 +78,7 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
                   <Input type="email" {...formField} placeholder={`Digite ${field.label.toLowerCase()}`} className="mt-1" disabled={isLoading} />
                 )}
                 {field.type === 'dropdown' && field.options && (
-                  <Select onValueChange={formField.onChange} defaultValue={formField.value} disabled={isLoading}>
+                  <Select onValueChange={formField.onChange} defaultValue={formField.value} value={formField.value} disabled={isLoading}>
                     <SelectTrigger className="w-full mt-1">
                       <SelectValue placeholder={`Selecione ${field.label.toLowerCase()}`} />
                     </SelectTrigger>
@@ -141,4 +141,3 @@ export function FilledFormDisplay({ template, filledData, onFormSubmit, onBack, 
     </Card>
   );
 }
-
