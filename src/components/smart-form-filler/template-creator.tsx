@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { ChangeEvent, FormEvent } from 'react';
@@ -34,9 +35,10 @@ import { Separator } from '@/components/ui/separator';
 const LOCAL_STORAGE_KEY = 'smartFormFillerTemplates';
 
 interface TemplateCreatorProps {
-  onTemplateCreated: (template: CustomFormFieldSchema[]) => void; // Renamed from onTemplateFinalized for consistency
-  currentFields: CustomFormFieldSchema[]; // AI suggestions or current working template
-  onBack: () => void; // To go back to document upload
+  onTemplateCreated: (template: CustomFormFieldSchema[], templateName?: string) => void;
+  currentFields: CustomFormFieldSchema[];
+  initialTemplateName?: string; 
+  onBack: () => void;
 }
 
 interface SavedTemplate {
@@ -44,7 +46,7 @@ interface SavedTemplate {
   fields: CustomFormFieldSchema[];
 }
 
-export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: TemplateCreatorProps) {
+export function TemplateCreator({ onTemplateCreated, currentFields, initialTemplateName, onBack }: TemplateCreatorProps) {
   const [fields, setFields] = useState<CustomFormFieldSchema[]>(currentFields);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<FieldType>('text');
@@ -52,7 +54,7 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
 
   const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>([]);
   const [selectedTemplateName, setSelectedTemplateName] = useState<string | undefined>(undefined);
-  const [templateNameToSave, setTemplateNameToSave] = useState('');
+  const [templateNameToSave, setTemplateNameToSave] = useState(initialTemplateName || '');
 
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
   const [overwriteConfirmAction, setOverwriteConfirmAction] = useState<(() => void) | null>(null);
@@ -60,19 +62,25 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
   const { toast } = useToast();
 
   useEffect(() => {
-    // Sync internal fields state when currentFields prop changes (e.g., new AI suggestions)
     setFields(currentFields);
-    // If currentFields are from AI (and not a loaded template), clear template name.
-    // This logic might need refinement based on how `templateNameToSave` should behave with AI suggestions.
-    // For now, if currentFields changes and it doesn't match any saved template name, clear the name.
-    const isCurrentFieldsASavedTemplate = savedTemplates.find(st => st.name === templateNameToSave && JSON.stringify(st.fields) === JSON.stringify(currentFields));
-    if (!isCurrentFieldsASavedTemplate && templateNameToSave && JSON.stringify(fields) !== JSON.stringify(currentFields)) {
-        // This heuristic is imperfect. If AI suggests fields, templateNameToSave should ideally be cleared
-        // unless the user explicitly loaded a template that happens to match AI suggestions.
-        // A simpler approach: if currentFields is not empty and templateNameToSave is empty, it might be AI suggestions.
-    }
+  }, [currentFields]);
 
-  }, [currentFields, savedTemplates, templateNameToSave, fields ]);
+  useEffect(() => {
+    if (initialTemplateName) {
+        setTemplateNameToSave(initialTemplateName);
+        setSelectedTemplateName(initialTemplateName); // Also select it in the dropdown if it was auto-loaded
+    } else {
+        // If no initial name (e.g. AI suggestions or new template),
+        // ensure templateNameToSave isn't stuck on a previous value unless it matches current fields
+        const currentTemplateMatchesNamed = savedTemplates.find(
+            st => st.name === templateNameToSave && JSON.stringify(st.fields) === JSON.stringify(fields)
+        );
+        if (!currentTemplateMatchesNamed && !fields.length) { // If fields are empty and not matching current name, reset name
+            setTemplateNameToSave('');
+            setSelectedTemplateName(undefined);
+        }
+    }
+  }, [initialTemplateName, fields, savedTemplates]);
 
 
   useEffect(() => {
@@ -126,13 +134,14 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
 
   const performSaveOrUpdateTemplate = (isOverwrite: boolean) => {
     let newSavedTemplatesList;
+    const templateToPersist = { name: templateNameToSave, fields };
     if (isOverwrite) {
       const existingTemplateIndex = savedTemplates.findIndex(t => t.name === templateNameToSave);
       newSavedTemplatesList = [...savedTemplates];
-      newSavedTemplatesList[existingTemplateIndex] = { name: templateNameToSave, fields };
+      newSavedTemplatesList[existingTemplateIndex] = templateToPersist;
       toast({ title: "Modelo Atualizado", description: `O modelo "${templateNameToSave}" foi atualizado com sucesso.` });
     } else {
-      newSavedTemplatesList = [...savedTemplates, { name: templateNameToSave, fields }];
+      newSavedTemplatesList = [...savedTemplates, templateToPersist];
       toast({ title: "Modelo Salvo", description: `Modelo "${templateNameToSave}" salvo com sucesso.` });
     }
     persistTemplates(newSavedTemplatesList);
@@ -186,9 +195,9 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
     
     const isCurrentTemplateTheDeletedOne = templateNameToSave === selectedTemplateName;
     
-    setSelectedTemplateName(undefined); // Clear selection
+    setSelectedTemplateName(undefined); 
     if (isCurrentTemplateTheDeletedOne) {
-        setFields([]); // Clear fields if the deleted template was active
+        setFields([]); 
         setTemplateNameToSave('');
     }
   };
@@ -206,7 +215,7 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
       toast({ title: "Modelo Vazio", description: "Adicione pelo menos um campo ao modelo antes de prosseguir.", variant: "destructive" });
       return;
     }
-    onTemplateCreated(fields);
+    onTemplateCreated(fields, templateNameToSave.trim() || undefined);
   };
 
   return (
@@ -214,7 +223,8 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
       <CardHeader>
         <CardTitle className="text-2xl font-semibold">2. Criar/Revisar Modelo de Formulário</CardTitle>
         <CardDescription>
-            Ajuste os campos sugeridos pela IA ou crie seu modelo do zero. Você também pode salvar e carregar modelos.
+            {initialTemplateName ? `O modelo "${initialTemplateName}" foi carregado com base no histórico do documento. ` : "Ajuste os campos sugeridos pela IA ou crie seu modelo do zero. "}
+            Você também pode salvar e carregar outros modelos.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -338,7 +348,7 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
         {/* Current Fields Section */}
         {fields.length > 0 && (
           <div className="space-y-3">
-            <h3 className="text-lg font-medium">Campos do Modelo Atual {templateNameToSave ? `(${templateNameToSave})` : '(Modelo não salvo)'}</h3>
+            <h3 className="text-lg font-medium">Campos do Modelo Atual {templateNameToSave ? `("${templateNameToSave}")` : '(Modelo não salvo)'}</h3>
             <ul className="space-y-2">
               {fields.map(field => (
                 <li key={field.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:shadow-md transition-shadow">
@@ -360,7 +370,8 @@ export function TemplateCreator({ onTemplateCreated, currentFields, onBack }: Te
          {fields.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-4">
                 Nenhum campo adicionado ao modelo atual. Adicione campos acima ou carregue um modelo salvo.
-                {currentFields.length > 0 && " (As sugestões da IA foram limpas ou não foram aplicadas.)"}
+                {/* Clarify if AI suggestions were present but cleared or not applied */}
+                {currentFields.length > 0 && !initialTemplateName && " (As sugestões da IA estão disponíveis para adição ou podem ter sido limpas.)"}
             </p>
         )}
       </CardContent>

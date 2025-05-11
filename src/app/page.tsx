@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -9,7 +10,7 @@ import { GoogleDriveSaveOptions } from '@/components/smart-form-filler/google-dr
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle, CheckCircle2, FileText, ListChecks, UploadCloud, Wand2, Edit3 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileText, ListChecks, UploadCloud, Wand2, Edit3, History } from 'lucide-react';
 import { fillFormFields } from '@/ai/flows/fill-form-fields';
 import type { FillFormFieldsInput, FillFormFieldsOutput as AIResponseType } from '@/ai/flows/fill-form-fields'; 
 import type { FormFieldSchema as AIFormFieldSchema } from '@/ai/flows/fill-form-fields';
@@ -22,6 +23,20 @@ import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
 
 type AppStep = 'documentUpload' | 'templateCreation' | 'formDisplay' | 'finalReview';
+
+const DOCUMENT_TEMPLATE_ASSOCIATIONS_KEY = 'smartFormFillerDocTemplateAssoc';
+const TEMPLATE_CREATOR_LOCAL_STORAGE_KEY = 'smartFormFillerTemplates'; // Used by TemplateCreator as well
+
+interface DocumentTemplateAssociation {
+  documentName: string;
+  templateName: string;
+  timestamp: number;
+}
+interface SavedTemplate { // Mirrored from TemplateCreator for use in page.tsx
+    name: string;
+    fields: CustomFormFieldSchema[];
+}
+
 
 const fileToDataUri = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -43,20 +58,20 @@ export default function SmartFormFillerPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [documentDataUriForAI, setDocumentDataUriForAI] = useState<string | null>(null);
   
-  // templateFields will hold AI suggestions first, then user's final template.
   const [templateFields, setTemplateFields] = useState<CustomFormFieldSchema[]>([]);
+  const [loadedTemplateName, setLoadedTemplateName] = useState<string | undefined>(undefined);
   
   const [filledData, setFilledData] = useState<Record<string, string> | null>(null);
   const [finalFormData, setFinalFormData] = useState<Record<string, string> | null>(null);
   
-  const [isLoadingDocumentProcessing, setIsLoadingDocumentProcessing] = useState(false); // For upload + AI field suggestion
-  const [isLoadingFormFilling, setIsLoadingFormFilling] = useState(false); // For AI filling the form
+  const [isLoadingDocumentProcessing, setIsLoadingDocumentProcessing] = useState(false); 
+  const [isLoadingFormFilling, setIsLoadingFormFilling] = useState(false); 
 
   const { toast } = useToast();
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    if (currentStep === 'documentUpload') setProgress(0); // Start at 0, moves to 25 after upload
+    if (currentStep === 'documentUpload') setProgress(0);
     else if (currentStep === 'templateCreation') setProgress(40);
     else if (currentStep === 'formDisplay') setProgress(70);
     else if (currentStep === 'finalReview') setProgress(100);
@@ -65,14 +80,53 @@ export default function SmartFormFillerPage() {
 
   const handleDocumentUploaded = async (file: File) => {
     setIsLoadingDocumentProcessing(true);
-    setProgress(10); // Indicate upload started
-    toast({ title: "Processando Documento...", description: "Carregando arquivo e buscando sugestões de campos com IA. Aguarde." });
+    setProgress(10); 
+    toast({ title: "Processando Documento...", description: "Carregando arquivo e verificando histórico..." });
     
     try {
       const dataUri = await fileToDataUri(file);
       setUploadedFile(file);
       setDocumentDataUriForAI(dataUri);
-      setProgress(25); // File processed, AI suggestion starting
+
+      // Check for existing association
+      const associationsJson = localStorage.getItem(DOCUMENT_TEMPLATE_ASSOCIATIONS_KEY);
+      let associations: DocumentTemplateAssociation[] = associationsJson ? JSON.parse(associationsJson) : [];
+      const existingAssociation = associations.find(assoc => assoc.documentName === file.name);
+
+      let templateAutoLoaded = false;
+      if (existingAssociation) {
+          const savedTemplatesJson = localStorage.getItem(TEMPLATE_CREATOR_LOCAL_STORAGE_KEY);
+          const savedTemplates: SavedTemplate[] = savedTemplatesJson ? JSON.parse(savedTemplatesJson) : [];
+          const matchedTemplate = savedTemplates.find(t => t.name === existingAssociation.templateName);
+
+          if (matchedTemplate) {
+              setTemplateFields(matchedTemplate.fields);
+              setLoadedTemplateName(matchedTemplate.name);
+              toast({
+                  title: "Modelo Sugerido Carregado!",
+                  description: (
+                    <div className="flex items-start">
+                      <History className="mr-2 h-5 w-5 text-blue-500 mt-1" />
+                      <div>
+                        O documento "{file.name}" foi usado anteriormente com o modelo <strong className="text-primary">"{matchedTemplate.name}"</strong>. O modelo foi carregado.
+                      </div>
+                    </div>
+                  ),
+                  duration: 8000
+              });
+              setCurrentStep('templateCreation');
+              setIsLoadingDocumentProcessing(false);
+              setProgress(40); 
+              templateAutoLoaded = true;
+          }
+      }
+
+      if (templateAutoLoaded) return;
+
+      // If no association or template not found, proceed with AI suggestion
+      setLoadedTemplateName(undefined); // Ensure no previous loaded name carries over for AI suggestion
+      toast({ title: "Analisando com IA...", description: "Buscando sugestões de campos. Aguarde." });
+      setProgress(25);
 
       const suggestionInput: SuggestFormFieldsInput = { documentDataUri: dataUri };
       const suggestionOutput: SuggestFormFieldsOutput = await suggestFormFieldsFromDocument(suggestionInput);
@@ -83,15 +137,13 @@ export default function SmartFormFillerPage() {
           id: generateFieldId(sField.label),
           label: sField.label,
           type: ['text', 'date', 'dropdown'].includes(sField.type) ? sField.type as FieldType : (sField.type === 'dropdown_candidate' ? 'dropdown' : 'text'),
-          // options: sField.type === 'dropdown_candidate' && sField.exampleValue ? [sField.exampleValue] : undefined, // simple initial option
-          // exampleValue: sField.exampleValue // Can be added to CustomFormFieldSchema if needed for display
         }));
         toast({ title: "Sugestões Prontas!", description: `${aiSuggestedFieldsMapped.length} campos foram sugeridos pela IA. Revise ou crie seu modelo.`, duration: 6000 });
       } else {
-        toast({ title: "Documento Carregado", description: "Não foram encontradas sugestões automáticas. Crie seu modelo manualmente.", variant: "default" });
+        toast({ title: "Documento Carregado", description: "Não foram encontradas sugestões automáticas pela IA. Crie seu modelo manualmente.", variant: "default" });
       }
       
-      setTemplateFields(aiSuggestedFieldsMapped); // Pre-populates TemplateCreator
+      setTemplateFields(aiSuggestedFieldsMapped); 
       setCurrentStep('templateCreation');
 
     } catch (error) {
@@ -109,28 +161,46 @@ export default function SmartFormFillerPage() {
         description: errorMessage,
         variant: "destructive",
       });
-      // Stay on documentUpload or reset, decided by UX. For now, stay.
       setUploadedFile(null);
       setDocumentDataUriForAI(null);
       setTemplateFields([]);
+      setLoadedTemplateName(undefined);
       setCurrentStep('documentUpload'); 
     } finally {
       setIsLoadingDocumentProcessing(false);
-      // Progress update handled by useEffect on currentStep change
     }
   };
   
-  const handleTemplateFinalized = async (finalizedTemplate: CustomFormFieldSchema[]) => {
-    setTemplateFields(finalizedTemplate); // User has confirmed/created the template
+  const handleTemplateFinalized = async (finalizedTemplate: CustomFormFieldSchema[], templateNameFromCreator?: string) => {
+    setTemplateFields(finalizedTemplate);
+    setLoadedTemplateName(templateNameFromCreator); // Keep track of the name of the template being used
+    
+    // Save/Update document-template association if a file was uploaded and a template name is available
+    if (uploadedFile && templateNameFromCreator) {
+      const associationsJson = localStorage.getItem(DOCUMENT_TEMPLATE_ASSOCIATIONS_KEY);
+      let associations: DocumentTemplateAssociation[] = associationsJson ? JSON.parse(associationsJson) : [];
+      
+      associations = associations.filter(assoc => assoc.documentName !== uploadedFile.name); // Remove old entry for this doc
+      associations.push({
+        documentName: uploadedFile.name,
+        templateName: templateNameFromCreator,
+        timestamp: Date.now(),
+      });
+      // Optional: Limit the number of associations and sort by most recent
+      associations.sort((a, b) => b.timestamp - a.timestamp);
+      // associations = associations.slice(0, 50); // Example limit
+      localStorage.setItem(DOCUMENT_TEMPLATE_ASSOCIATIONS_KEY, JSON.stringify(associations));
+      console.log(`Associated document "${uploadedFile.name}" with template "${templateNameFromCreator}"`);
+    }
     
     if (!documentDataUriForAI) {
       toast({ title: "Erro", description: "Documento não encontrado para preenchimento.", variant: "destructive" });
-      setCurrentStep('documentUpload'); // Go back if doc is missing
+      setCurrentStep('documentUpload');
       return;
     }
 
     setIsLoadingFormFilling(true);
-    setProgress(60); // Indicate form filling started
+    setProgress(60);
     toast({ title: "Preenchendo Formulário...", description: "A IA está preenchendo os campos. Isso pode levar alguns instantes." });
 
     try {
@@ -167,14 +237,14 @@ export default function SmartFormFillerPage() {
           : error.message;
       }
       toast({ title: "Erro no Preenchimento IA", description: errorMessage, variant: "destructive" });
-      setCurrentStep('templateCreation'); // Allow user to retry or adjust template
+      setCurrentStep('templateCreation'); 
     } finally {
       setIsLoadingFormFilling(false);
     }
   };
 
 
-  const handleFormSubmitEdited = (data: Record<string, string>) => { // Renamed from handleFormSubmit
+  const handleFormSubmitEdited = (data: Record<string, string>) => {
     setFinalFormData(data);
     setCurrentStep('finalReview');
     toast({ title: "Revisão Final", description: "Confira os dados e salve no Google Drive, se desejar."})
@@ -185,6 +255,7 @@ export default function SmartFormFillerPage() {
     setUploadedFile(null);
     setDocumentDataUriForAI(null);
     setTemplateFields([]);
+    setLoadedTemplateName(undefined);
     setFilledData(null);
     setFinalFormData(null);
     setIsLoadingDocumentProcessing(false);
@@ -195,8 +266,7 @@ export default function SmartFormFillerPage() {
 
   const goBack = () => {
     if (currentStep === 'templateCreation') {
-      // Reset to allow new document upload and field suggestion
-      resetApp(); // This sets currentStep to 'documentUpload'
+      resetApp(); 
     }
     else if (currentStep === 'formDisplay') setCurrentStep('templateCreation');
     else if (currentStep === 'finalReview') setCurrentStep('formDisplay');
@@ -236,7 +306,7 @@ export default function SmartFormFillerPage() {
           <h1 className="text-4xl font-bold text-foreground">Preenchedor Inteligente de Formulários</h1>
         </div>
         <p className="text-muted-foreground text-lg">
-          Transforme documentos em formulários preenchidos com o poder da IA.
+          Transforme documentos em formulários preenchidos com o poder da IA. Economize tempo e automatize seu trabalho.
         </p>
       </header>
 
@@ -247,15 +317,15 @@ export default function SmartFormFillerPage() {
           <DocumentUploader 
             onDocumentUploaded={handleDocumentUploaded} 
             isLoading={isLoadingDocumentProcessing}
-            // No onBack for the first step, or implement reset logic here
           />
         )}
 
         {currentStep === 'templateCreation' && (
           <TemplateCreator 
             onTemplateCreated={handleTemplateFinalized} 
-            currentFields={templateFields} // Pass AI suggestions or empty array
-            onBack={goBack} // Allows going back to document upload
+            currentFields={templateFields} 
+            initialTemplateName={loadedTemplateName}
+            onBack={goBack}
           />
         )}
 
@@ -265,7 +335,7 @@ export default function SmartFormFillerPage() {
             filledData={filledData}
             onFormSubmit={handleFormSubmitEdited}
             onBack={goBack}
-            onStartOver={resetApp} // Or onUploadNewDocument
+            onStartOver={resetApp} 
             isLoading={isLoadingFormFilling}
           />
         )}
@@ -309,3 +379,4 @@ export default function SmartFormFillerPage() {
     </div>
   );
 }
+
