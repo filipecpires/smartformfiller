@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
-import { PlusCircle, Trash2, ArrowRight, Save, UploadCloud, FolderOpen } from "lucide-react";
+import { PlusCircle, Trash2, ArrowRight, Save, UploadCloud, FolderOpen, FilePlus2 } from "lucide-react";
 import type { CustomFormFieldSchema, FieldType } from '@/types';
 import { fieldTypeLabels } from '@/types';
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +54,10 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
   const [selectedTemplateName, setSelectedTemplateName] = useState<string | undefined>(undefined);
   const [templateNameToSave, setTemplateNameToSave] = useState('');
 
+  const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
+  const [overwriteConfirmAction, setOverwriteConfirmAction] = useState<(() => void) | null>(null);
+
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -62,9 +66,6 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
       try {
         const parsedTemplates = JSON.parse(storedTemplates) as SavedTemplate[];
         setSavedTemplates(parsedTemplates);
-        if (parsedTemplates.length > 0) {
-           // setSelectedTemplateName(parsedTemplates[0].name); // Pre-select first template if exists
-        }
       } catch (error) {
         console.error("Error parsing saved templates from localStorage:", error);
         toast({ title: "Erro", description: "Não foi possível carregar modelos salvos.", variant: "destructive" });
@@ -108,6 +109,22 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
     }
   };
 
+  const performSaveOrUpdateTemplate = (isOverwrite: boolean) => {
+    let newSavedTemplatesList;
+    if (isOverwrite) {
+      const existingTemplateIndex = savedTemplates.findIndex(t => t.name === templateNameToSave);
+      newSavedTemplatesList = [...savedTemplates];
+      newSavedTemplatesList[existingTemplateIndex] = { name: templateNameToSave, fields };
+      toast({ title: "Modelo Atualizado", description: `O modelo "${templateNameToSave}" foi atualizado com sucesso.` });
+    } else {
+      newSavedTemplatesList = [...savedTemplates, { name: templateNameToSave, fields }];
+      toast({ title: "Modelo Salvo", description: `Modelo "${templateNameToSave}" salvo com sucesso.` });
+    }
+    persistTemplates(newSavedTemplatesList);
+    setSelectedTemplateName(templateNameToSave); // Keep current saved/updated template selected
+    // setTemplateNameToSave(templateNameToSave); // Keep name in input for further edits or re-save
+  };
+
   const handleSaveTemplate = () => {
     if (!templateNameToSave.trim()) {
       toast({ title: "Erro ao Salvar", description: "Por favor, insira um nome para o modelo.", variant: "destructive" });
@@ -118,23 +135,16 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
       return;
     }
 
-    const existingTemplateIndex = savedTemplates.findIndex(t => t.name === templateNameToSave);
-    let newSavedTemplates;
+    const isExistingName = savedTemplates.some(t => t.name === templateNameToSave);
 
-    if (existingTemplateIndex !== -1) {
-      // Overwrite existing template
-      newSavedTemplates = [...savedTemplates];
-      newSavedTemplates[existingTemplateIndex] = { name: templateNameToSave, fields };
-      toast({ title: "Modelo Atualizado", description: `O modelo "${templateNameToSave}" foi atualizado com sucesso.` });
+    if (isExistingName) {
+      setOverwriteConfirmAction(() => () => performSaveOrUpdateTemplate(true));
+      setIsOverwriteDialogVisible(true);
     } else {
-      // Add new template
-      newSavedTemplates = [...savedTemplates, { name: templateNameToSave, fields }];
-      toast({ title: "Modelo Salvo", description: `Modelo "${templateNameToSave}" salvo com sucesso.` });
+      performSaveOrUpdateTemplate(false);
     }
-    
-    persistTemplates(newSavedTemplates);
-    setSelectedTemplateName(templateNameToSave); // Select the newly saved/updated template
   };
+
 
   const handleLoadTemplate = () => {
     if (!selectedTemplateName) {
@@ -144,7 +154,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
     const templateToLoad = savedTemplates.find(t => t.name === selectedTemplateName);
     if (templateToLoad) {
       setFields(templateToLoad.fields);
-      setTemplateNameToSave(templateToLoad.name); // Pre-fill save name input
+      setTemplateNameToSave(templateToLoad.name); 
       toast({ title: "Modelo Carregado", description: `Modelo "${templateToLoad.name}" carregado com sucesso.` });
     } else {
       toast({ title: "Erro ao Carregar", description: "Modelo não encontrado.", variant: "destructive" });
@@ -159,10 +169,27 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
     const newSavedTemplates = savedTemplates.filter(t => t.name !== selectedTemplateName);
     persistTemplates(newSavedTemplates);
     toast({ title: "Modelo Excluído", description: `Modelo "${selectedTemplateName}" excluído com sucesso.` });
+    
+    const currentFieldsBelongToDeleted = fields.length > 0 && templateNameToSave === selectedTemplateName;
+
     setSelectedTemplateName(newSavedTemplates.length > 0 ? newSavedTemplates[0].name : undefined);
-    if (newSavedTemplates.length === 0) setFields(initialFields); // Reset fields if no templates left
+    if (newSavedTemplates.length === 0 || currentFieldsBelongToDeleted) {
+        setFields(initialFields); 
+        setTemplateNameToSave('');
+    } else if (newSavedTemplates.length > 0) {
+        // If current fields are not from the deleted one, keep them, but clear save name if it matched deleted.
+        if (templateNameToSave === selectedTemplateName) {
+            setTemplateNameToSave(newSavedTemplates[0].name); // Or clear it: setTemplateNameToSave('');
+        }
+    }
   };
 
+  const handleNewTemplate = () => {
+    setFields(initialFields); // Reset to initial (usually empty)
+    setTemplateNameToSave('');
+    setSelectedTemplateName(undefined);
+    toast({ title: "Novo Modelo", description: "Campos limpos. Comece a criar seu novo modelo." });
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -283,10 +310,15 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
               placeholder="Ex: Contrato Padrão"
               className="mt-1"
             />
-            <Button onClick={handleSaveTemplate} disabled={fields.length === 0 || !templateNameToSave.trim()} className="w-full sm:w-auto">
-              <Save className="mr-2" />
-              {savedTemplates.some(t => t.name === templateNameToSave) ? "Atualizar Modelo Salvo" : "Salvar Modelo Atual"}
-            </Button>
+             <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                <Button onClick={handleSaveTemplate} disabled={fields.length === 0 || !templateNameToSave.trim()} className="flex-grow sm:flex-grow-0">
+                <Save className="mr-2" />
+                {savedTemplates.some(t => t.name === templateNameToSave && templateNameToSave.trim() !== '') ? "Atualizar Modelo" : "Salvar Novo Modelo"}
+                </Button>
+                <Button onClick={handleNewTemplate} variant="outline" className="flex-grow sm:flex-grow-0">
+                    <FilePlus2 className="mr-2" /> Novo (Limpar Campos)
+                </Button>
+            </div>
           </div>
         </div>
         
@@ -295,7 +327,7 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
         {/* Current Fields Section */}
         {fields.length > 0 && (
           <div className="space-y-3">
-            <h3 className="text-lg font-medium">Campos do Modelo Atual</h3>
+            <h3 className="text-lg font-medium">Campos do Modelo Atual {templateNameToSave ? `(${templateNameToSave})` : ''}</h3>
             <ul className="space-y-2">
               {fields.map(field => (
                 <li key={field.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:shadow-md transition-shadow">
@@ -323,6 +355,37 @@ export function TemplateCreator({ onTemplateCreated, initialFields = [] }: Templ
           Próximo Passo <ArrowRight className="ml-2" />
         </Button>
       </CardFooter>
+
+      {/* Overwrite Confirmation Dialog */}
+      <AlertDialog open={isOverwriteDialogVisible} onOpenChange={setIsOverwriteDialogVisible}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar Sobrescrita</AlertDialogTitle>
+            <AlertDialogDescription>
+              Já existe um modelo chamado "{templateNameToSave}". Deseja sobrescrevê-lo com as alterações atuais?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setOverwriteConfirmAction(null);
+              // setIsOverwriteDialogVisible(false); // onOpenChange handles this
+            }}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (overwriteConfirmAction) {
+                  overwriteConfirmAction();
+                }
+                setOverwriteConfirmAction(null);
+                // setIsOverwriteDialogVisible(false); // onOpenChange handles this
+              }}
+            >
+              Sobrescrever
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </Card>
   );
 }
+
