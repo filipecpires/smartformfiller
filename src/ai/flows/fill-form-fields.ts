@@ -64,6 +64,7 @@ Document: {{media url=documentDataUri}}
 Extract the value for the field with the label: "{{fieldLabel}}".
 If you find the value, return it. If you cannot find a specific value for the field, return "Não encontrado".
 Do not make up information. Only return information explicitly found in the document relevant to the field label.
+Consider the context of the field label to find the most relevant information. For example, if the label is "Nome Completo", look for a full name. If it's "Data de Nascimento", look for a date.
 `,
 });
 
@@ -71,7 +72,7 @@ Do not make up information. Only return information explicitly found in the docu
 const extractFieldValueTool = ai.defineTool(
   {
     name: 'extractFieldValue',
-    description: 'Extracts the value for a specific field from the document based on its label.',
+    description: 'Extracts the value for a specific field from the document based on its label. Considers the context of the field label to find the most relevant information.',
     inputSchema: ExtractFieldValueInputSchema,
     outputSchema: ExtractFieldValueOutputSchema,
   },
@@ -104,6 +105,7 @@ const fillFormFieldsFlow = ai.defineFlow(
     const systemPrompt = `You are an AI assistant designed to fill out form fields by extracting information from a provided document.
 For each field in the 'formTemplate', you MUST use the 'extractFieldValue' tool to get the value from the 'documentDataUri'.
 The 'fieldLabel' for the tool should be the 'label' of the current form field.
+When using the tool, consider the context of the field label. For instance, if the label is "Nome da Mãe", search for a name associated with the concept of 'mother'. If the label is "Endereço Completo", look for a full address.
 Collect all results and return them in the specified output format (an array of objects, where each object has 'fieldId' and 'value').
 Ensure that for every field in the input 'formTemplate', there is a corresponding entry in the 'filledFields' output array.
 If the tool returns "Não encontrado" or similar for a field, use that value for the 'value' property.
@@ -123,7 +125,7 @@ Form Template:
         output: { schema: FillFormFieldsOutputSchema },
         tools: [extractFieldValueTool],
         prompt: systemPrompt,
-        model: ai.getModel('googleai/gemini-2.0-flash'), 
+        model: 'googleai/gemini-2.0-flash', 
         config: {
             // temperature: 0.3 // Lower temperature for more deterministic tool usage
         }
@@ -148,7 +150,7 @@ Form Template:
             return foundField;
         }
         // If LLM missed a field or value is not a string, provide a default
-        console.warn(`Field ${templateField.id} was not processed correctly by LLM or value was not a string. Found:`, foundField)
+        console.warn(`Field ${templateField.id} ("${templateField.label}") was not processed correctly by LLM or value was not a string. Found:`, foundField)
         return { fieldId: templateField.id, value: "Não processado" };
     });
 
